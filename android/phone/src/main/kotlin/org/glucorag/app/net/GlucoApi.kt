@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -95,6 +96,10 @@ class GlucoApi(base: String, private val client: OkHttpClient, private val token
         )
     }
 
+    /** Revokes this device's token on the server (`POST /auth/logout`, 204). */
+    suspend fun signOut(): ApiResult<Unit> =
+        call(Request.Builder().url(url("auth/logout")).post(ByteArray(0).toRequestBody()), Unit.serializer(), noContent = Unit)
+
     private fun url(path: String, vararg query: Pair<String, String>): HttpUrl =
         base.newBuilder().addPathSegments(path).apply {
             query.forEach { (k, v) -> addQueryParameter(k, v) }
@@ -106,16 +111,19 @@ class GlucoApi(base: String, private val client: OkHttpClient, private val token
     private suspend fun <T> get(path: String, serializer: KSerializer<T>, vararg query: Pair<String, String>) =
         call(Request.Builder().url(url(path, *query)).get(), serializer)
 
+    /** [noContent], when given, is the result of a successful reply with an empty body (204). */
     private suspend fun <T> call(
         builder: Request.Builder,
         serializer: KSerializer<T>,
         authorize: Boolean = true,
+        noContent: T? = null,
     ): ApiResult<T> {
         if (authorize) token()?.takeIf { it.isNotBlank() }?.let { builder.header("Authorization", "Bearer $it") }
         return try {
             client.newCall(builder.build()).await().use { response ->
                 val text = withContext(Dispatchers.IO) { response.body.string() }
                 when {
+                    response.isSuccessful && noContent != null && text.isBlank() -> ApiResult.Ok(noContent)
                     response.isSuccessful -> try {
                         ApiResult.Ok(json.decodeFromString(serializer, text))
                     } catch (e: IllegalArgumentException) {

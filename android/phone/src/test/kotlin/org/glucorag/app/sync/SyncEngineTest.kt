@@ -303,5 +303,10 @@ class SyncEngineTest {
         override suspend fun count() = rows.size
 
         override fun observeCount(): Flow<Int> = counter
+
+        override suspend fun clear() {
+            rows.clear()
+            counter.value = 0
+        }
     }
 }

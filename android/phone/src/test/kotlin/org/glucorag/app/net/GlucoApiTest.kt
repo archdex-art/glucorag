@@ -292,4 +292,23 @@ class GlucoApiTest {
         assertEquals(15_000, c.connectTimeoutMillis)
         assertEquals(30_000, c.readTimeoutMillis)
     }
+
+    @Test
+    fun signOutRevokesThisDeviceToken() = runBlocking {
+        token = "tok-1"
+        server.enqueue(MockResponse.Builder().code(204).build())
+        val r = api.signOut()
+        assertTrue("expected Ok, got $r", r is ApiResult.Ok<*>)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/auth/logout", req.url.encodedPath)
+        assertEquals("Bearer tok-1", req.headers["Authorization"])
+    }
+
+    @Test
+    fun signOutWhenAlreadyRevokedIsUnauthorized() = runBlocking {
+        token = "tok-1"
+        json("""{"detail":"x"}""", 401)
+        assertEquals(ApiResult.Unauthorized, api.signOut())
+    }
 }

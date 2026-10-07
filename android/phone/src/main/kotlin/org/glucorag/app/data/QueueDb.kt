@@ -40,6 +40,10 @@ interface QueueDao {
     /** The number of waiting readings, for the sync line. */
     @Query("SELECT COUNT(*) FROM queue")
     fun observeCount(): Flow<Int>
+
+    /** Drops every waiting reading (a confirmed sign-out). */
+    @Query("DELETE FROM queue")
+    suspend fun clear()
 }
 
 @Database(entities = [QueuedReading::class], version = 1, exportSchema = false)
