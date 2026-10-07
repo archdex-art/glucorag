@@ -1,0 +1,172 @@
+package org.glucorag.app.net
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import org.glucorag.shared.CgmReading
+import java.io.IOException
+import java.time.DateTimeException
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+/** The outcome of one API call; failures never throw. */
+sealed interface ApiResult<out T> {
+    data class Ok<T>(val value: T) : ApiResult<T>
+
+    /** 401: the token is missing, expired or revoked, or (on sign-in) the credentials are wrong. */
+    data object Unauthorized : ApiResult<Nothing>
+
+    /** 409: the account has no profile yet. */
+    data object NeedsSetup : ApiResult<Nothing>
+
+    /** Any other failure the server answered; [message] is its `detail` when it gave one. */
+    data class Http(val code: Int, val message: String) : ApiResult<Nothing>
+
+    /** No answer: connection refused, DNS, TLS, timeout. */
+    data class Network(val cause: Throwable) : ApiResult<Nothing>
+}
+
+inline fun <T, R> ApiResult<T>.map(transform: (T) -> R): ApiResult<R> = when (this) {
+    is ApiResult.Ok -> ApiResult.Ok(transform(value))
+    ApiResult.Unauthorized -> ApiResult.Unauthorized
+    ApiResult.NeedsSetup -> ApiResult.NeedsSetup
+    is ApiResult.Http -> this
+    is ApiResult.Network -> this
+}
+
+/**
+ * The GlucoRAG server API for a signed-in phone. [base] is a `checkServerUrl` Ok base
+ * (`scheme://host[:port]`); [token] is read per request and sent as `Authorization: Bearer`
+ * when present.
+ */
+class GlucoApi(base: String, private val client: OkHttpClient, private val token: () -> String?) {
+    private val base: HttpUrl = base.toHttpUrl()
+
+    suspend fun health(): ApiResult<Health> = get("healthz", Health.serializer())
+
+    /** Sign this device in; the request never carries a previous token. */
+    suspend fun signIn(email: String, password: String, device: String): ApiResult<TokenOut> =
+        call(
+            Request.Builder().url(url("auth/token")).post(jsonBody(TokenIn.serializer(), TokenIn(email, password, device))),
+            TokenOut.serializer(),
+            authorize = false,
+        )
+
+    suspend fun account(): ApiResult<AccountOut> = get("auth/me", AccountOut.serializer())
+
+    suspend fun status(): ApiResult<StatusDto> = get("me/status", StatusDto.serializer())
+
+    /** Readings in the [hours] before the latest one, oldest first. */
+    suspend fun history(hours: Int = 3): ApiResult<List<ReadingDto>> =
+        get("me/history", HistoryDto.serializer(), "hours" to hours.toString()).map { it.readings }
+
+    /** Alerts with an id above [id], oldest first. */
+    suspend fun alertsAfter(id: Long): ApiResult<List<AlertDto>> =
+        get("me/alerts", ListSerializer(AlertDto.serializer()), "after_id" to id.toString())
+
+    /** Times are sent as UTC ISO-8601 (`2026-10-06T08:00:00Z`). */
+    suspend fun uploadBatch(readings: List<CgmReading>): ApiResult<BatchResult> {
+        val body = BatchIn(readings.map { BatchReading(it.t, it.mgdl) })
+        return call(
+            Request.Builder().url(url("me/readings/batch")).post(jsonBody(BatchIn.serializer(), body)),
+            BatchResult.serializer(),
+        )
+    }
+
+    private fun url(path: String, vararg query: Pair<String, String>): HttpUrl =
+        base.newBuilder().addPathSegments(path).apply {
+            query.forEach { (k, v) -> addQueryParameter(k, v) }
+        }.build()
+
+    private fun <T> jsonBody(serializer: KSerializer<T>, value: T): RequestBody =
+        json.encodeToString(serializer, value).toRequestBody(JSON_TYPE)
+
+    private suspend fun <T> get(path: String, serializer: KSerializer<T>, vararg query: Pair<String, String>) =
+        call(Request.Builder().url(url(path, *query)).get(), serializer)
+
+    private suspend fun <T> call(
+        builder: Request.Builder,
+        serializer: KSerializer<T>,
+        authorize: Boolean = true,
+    ): ApiResult<T> {
+        if (authorize) token()?.takeIf { it.isNotBlank() }?.let { builder.header("Authorization", "Bearer $it") }
+        return try {
+            client.newCall(builder.build()).await().use { response ->
+                val text = withContext(Dispatchers.IO) { response.body.string() }
+                when {
+                    response.isSuccessful -> try {
+                        ApiResult.Ok(json.decodeFromString(serializer, text))
+                    } catch (e: IllegalArgumentException) {
+                        // SerializationException (malformed or wrong-shaped JSON) is one too.
+                        ApiResult.Http(response.code, UNREADABLE)
+                    } catch (e: DateTimeException) {
+                        ApiResult.Http(response.code, UNREADABLE)
+                    }
+                    response.code == 401 -> ApiResult.Unauthorized
+                    response.code == 409 -> ApiResult.NeedsSetup
+                    else -> ApiResult.Http(
+                        response.code,
+                        detailOf(text) ?: "The server answered with error ${response.code}.",
+                    )
+                }
+            }
+        } catch (e: IOException) {
+            ApiResult.Network(e)
+        }
+    }
+
+    companion object {
+        private val JSON_TYPE = "application/json".toMediaType()
+
+        private const val UNREADABLE = "The server's answer wasn't understood."
+        private val json = Json {
+            ignoreUnknownKeys = true
+            explicitNulls = false
+        }
+
+        /** The client the app uses: 15 s to connect, 30 s to read. */
+        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+
+        /** FastAPI's string `detail`; validation errors (a list) and non-JSON bodies give null. */
+        private fun detailOf(text: String): String? = try {
+            ((json.parseToJsonElement(text) as? JsonObject)?.get("detail") as? JsonPrimitive)
+                ?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+        } catch (e: SerializationException) {
+            null
+        }
+    }
+}
+
+/** Runs the call on OkHttp's dispatcher; cancelling the coroutine cancels the call. */
+private suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
+    cont.invokeOnCancellation { cancel() }
+    enqueue(object : Callback {
+        override fun onResponse(call: Call, response: Response) {
+            cont.resume(response) { _, value, _ -> value.close() }
+        }
+
+        override fun onFailure(call: Call, e: IOException) {
+            cont.resumeWithException(e)
+        }
+    })
+}
