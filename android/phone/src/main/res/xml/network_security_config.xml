@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android can only allow cleartext per exact host, per domain suffix, or globally; a home server is
+  usually a raw LAN IP. Cleartext is allowed here and the real guard is checkServerUrl (shared):
+  http:// only to private LAN, link-local, loopback, Tailscale and *.local hosts.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration" />
+</network-security-config>

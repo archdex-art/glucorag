@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -51,7 +52,13 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.datastore.preferences)
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+    implementation(libs.play.services.wearable)
 
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver3)
