@@ -11,7 +11,7 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -132,12 +132,41 @@ def _ts(t: datetime) -> str:
     return t.strftime(_TS)
 
 
+class DeviceSession(BaseModel):
+    """A signed-in device (bearer-token session); ``id`` is the sessions rowid."""
+
+    id: int
+    device: str
+    created_at: datetime
+    last_used_at: datetime | None
+
+
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _utc_iso(t: datetime) -> str:
+    """Fixed-width UTC ISO time so lexical order equals time order."""
+    return t.astimezone(UTC).isoformat(timespec="microseconds")
+
+
+# Schema migrations: ``MIGRATIONS[v]`` upgrades ``user_version`` v to v+1. ``SCHEMA`` keeps
+# the version-0 table definitions; later columns arrive only through these steps.
+MIGRATIONS: tuple[tuple[str, ...], ...] = (
+    (
+        "ALTER TABLE sessions ADD COLUMN device TEXT",
+        "ALTER TABLE sessions ADD COLUMN last_used_at TEXT",
+    ),
+)
+
+# Device sessions refresh ``last_used_at`` at most this often.
+_TOUCH_INTERVAL = timedelta(minutes=10)
+
+
 class Storage:
     """Thread-safe wrapper over one SQLite connection (``":memory:"`` for tests)."""
+
+    SCHEMA_VERSION = len(MIGRATIONS)
 
     def __init__(self, path: str | Path) -> None:
         path = str(path)
@@ -151,6 +180,25 @@ class Storage:
                 self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(SCHEMA)
+            self._migrate()
+
+    def _migrate(self) -> None:
+        """Bring ``PRAGMA user_version`` up to ``SCHEMA_VERSION``; each step commits
+        atomically with its version bump, and ``BEGIN IMMEDIATE`` takes the write lock
+        before reading the version so concurrent openers cannot both apply a step."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+                for v in range(version, self.SCHEMA_VERSION):
+                    for sql in MIGRATIONS[v]:
+                        self._conn.execute(sql)
+                if version < self.SCHEMA_VERSION:
+                    self._conn.execute(f"PRAGMA user_version = {self.SCHEMA_VERSION:d}")
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
+            self._conn.execute("COMMIT")
 
     def close(self) -> None:
         with self._lock:
@@ -436,16 +484,54 @@ class Storage:
         )
 
     # sessions (only a SHA-256 of the bearer token is stored) -----------------------------
-    def create_session(self, token_hash: str, user_id: int, expires_at: datetime) -> None:
+    def create_session(
+        self, token_hash: str, user_id: int, expires_at: datetime, device: str | None = None
+    ) -> None:
         """Raises ``UserGoneError`` if the account was deleted concurrently (e.g. while a
-        sign-in was checking its password)."""
+        sign-in was checking its password). ``device`` names a bearer-token device."""
         try:
             self._exec(
-                "INSERT INTO sessions VALUES (?,?,?,?)",
-                (token_hash, user_id, _utc_now(), expires_at.astimezone(UTC).isoformat()),
+                "INSERT INTO sessions (token_hash, user_id, created_at, expires_at, device) "
+                "VALUES (?,?,?,?,?)",
+                (token_hash, user_id, _utc_now(), expires_at.astimezone(UTC).isoformat(),
+                 device),
             )
         except sqlite3.IntegrityError as e:
             raise UserGoneError(user_id) from e
+
+    def device_sessions(self, user_id: int) -> list[DeviceSession]:
+        rows = self._rows(
+            "SELECT rowid AS id, device, created_at, last_used_at FROM sessions "
+            "WHERE user_id=? AND device IS NOT NULL ORDER BY rowid",
+            (user_id,),
+        )
+        return [
+            DeviceSession(
+                id=r["id"], device=r["device"],
+                created_at=datetime.fromisoformat(r["created_at"]),
+                last_used_at=(
+                    datetime.fromisoformat(r["last_used_at"]) if r["last_used_at"] else None
+                ),
+            )
+            for r in rows
+        ]
+
+    def delete_device_session(self, user_id: int, session_id: int) -> bool:
+        """Sign out one device; ``False`` if it doesn't exist or belongs to someone else."""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM sessions WHERE rowid=? AND user_id=? AND device IS NOT NULL",
+                (session_id, user_id),
+            )
+            return cur.rowcount > 0
+
+    def touch_session(self, token_hash: str, now: datetime) -> None:
+        """Record use of a session, at most once per ``_TOUCH_INTERVAL``."""
+        self._exec(
+            "UPDATE sessions SET last_used_at=? "
+            "WHERE token_hash=? AND (last_used_at IS NULL OR last_used_at <= ?)",
+            (_utc_iso(now), token_hash, _utc_iso(now - _TOUCH_INTERVAL)),
+        )
 
     def session_user(self, token_hash: str, now: datetime) -> StoredUser | None:
         """User for an unexpired session; expired sessions are deleted on sight."""
