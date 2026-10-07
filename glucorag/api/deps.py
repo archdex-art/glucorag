@@ -60,10 +60,14 @@ def _same_origin(request: Request) -> bool:
     return urlsplit(origin).netloc == host
 
 
-def _bearer_token(header: str) -> str:
-    parts = header.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(401, "Malformed Authorization header", {"WWW-Authenticate": "Bearer"})
+def _bearer_token(header: str | None) -> str | None:
+    """The token of a ``Bearer`` header; ``None`` for no header or another scheme (e.g. a
+    Basic-auth reverse proxy in front of the website), so the cookie still applies."""
+    parts = (header or "").split()
+    if not parts or parts[0].lower() != "bearer":
+        return None
+    if len(parts) != 2:
+        raise HTTPException(401, "Malformed Bearer header", {"WWW-Authenticate": "Bearer"})
     return parts[1]
 
 
@@ -78,8 +82,9 @@ def optional_principal(
         return Principal("api_key")
     storage = get_service(request).storage
     now = datetime.now(UTC)
-    if authorization is not None:
-        hashed = token_hash(_bearer_token(authorization))
+    bearer = _bearer_token(authorization)
+    if bearer is not None:
+        hashed = token_hash(bearer)
         user = storage.session_user(hashed, now)
         if user is None:  # never fall back to the cookie: the app must sign in again
             raise HTTPException(401, "Sign in again on this device", {"WWW-Authenticate": "Bearer"})

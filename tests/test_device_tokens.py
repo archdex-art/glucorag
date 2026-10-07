@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from test_accounts import PASSWORD, PROFILE, _readings, _register
 
 from glucorag.core.accounts import hash_password
@@ -28,7 +30,10 @@ def test_token_issue_and_use(make_client):
         r = _token(c)
         assert r.status_code == 200
         body = r.json()
-        assert body["account"]["email"] == EMAIL and body["expires_at"]
+        assert body["account"]["email"] == EMAIL
+        expires = datetime.fromisoformat(body["expires_at"])
+        now = datetime.now(UTC)
+        assert now + timedelta(days=364) < expires < now + timedelta(days=366)
         assert "set-cookie" not in {k.lower() for k in r.headers}
         assert c.get("/auth/me").status_code == 401
         me = c.get("/auth/me", headers=_bearer(body["token"]))
@@ -79,12 +84,21 @@ def test_invalid_bearer_is_401_even_with_a_valid_cookie(make_client):
         assert r.status_code == 401 and r.headers["WWW-Authenticate"] == "Bearer"
 
 
-def test_malformed_authorization_header_is_401(make_client):
+def test_malformed_bearer_header_is_401(make_client):
     with make_client() as c:
-        for header in ("Bearer", "Bearer a b", "Basic abc", "Bearer "):
+        _register(c)  # a valid cookie must not rescue a broken bearer header
+        for header in ("Bearer", "Bearer a b", "bearer "):
             r = c.get("/auth/me", headers={"Authorization": header})
             assert r.status_code == 401, header
             assert r.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_other_authorization_schemes_fall_through_to_the_cookie(make_client):
+    """A Basic-auth reverse proxy in front of the website must not break cookie sign-in."""
+    with make_client() as c:
+        _register(c)
+        r = c.get("/auth/me", headers={"Authorization": "Basic abc"})
+        assert r.status_code == 200 and r.json()["email"] == EMAIL
 
 
 def test_bearer_scheme_is_case_insensitive(make_client):

@@ -79,7 +79,7 @@ A person who opens a staff page gets a 403 page.
 
 **Sessions:** the website signs in with an HttpOnly, `SameSite=Strict` session cookie; only a SHA-256 of the session token is stored. Writes made with the cookie must come from the same origin. Failed logins are throttled at 5 per 15 min per email (in process memory, so per server process). Behind TLS, set `GLUCORAG_COOKIE_SECURE=true` if the proxy does not send `X-Forwarded-Proto: https`.
 
-**Phones** sign in once with `POST /auth/token` (`{email, password, device}`, personal accounts only, same throttle as login) and send the returned token as `Authorization: Bearer <token>` for a year. Bearer requests need no `Origin` check; an invalid or revoked token is a 401 even if a cookie is also present. `GET /me/devices` lists signed-in phones and `DELETE /me/devices/{id}` signs one out; `POST /auth/logout` with the bearer header ends that phone's session.
+**Phones** sign in once with `POST /auth/token` (`{email, password, device}`, personal accounts only, same throttle as login) and send the returned token as `Authorization: Bearer <token>` for a year. Bearer requests need no `Origin` check; an invalid or revoked token is a 401 even if a cookie is also present (other `Authorization` schemes, e.g. from a Basic-auth proxy, are ignored). `GET /me/devices` lists signed-in phones and `DELETE /me/devices/{id}` signs one out; `POST /auth/logout` with the bearer header ends that phone's session.
 
 **Devices and scripts** use API keys (`X-API-Key`), which are optional: set `GLUCORAG_API_KEYS` only if something should push readings without an account. To fill the ward with a recorded series:
 ```bash
