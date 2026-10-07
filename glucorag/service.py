@@ -11,6 +11,7 @@ service is safe to call from the API's worker threads.
 """
 
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -597,17 +598,26 @@ class GlucoseService:
 
 
 def _trend(history: list[Reading], interval_min: int) -> float | None:
-    """Rate over the latest interval: last reading vs one taken one interval earlier.
+    """Rate over the latest interval: last reading vs the one nearest one interval earlier.
 
-    Readings sit on the sampling grid; a missing predecessor (a gap) gives no trend
-    rather than a rate smeared across the gap.
+    Dense feeds (1-5 min) are measured over the same span as native-grid ones. The
+    predecessor must lie within [0.5, 1.5] intervals (ties: the later reading); none in
+    that window (a gap) gives no trend rather than a rate smeared across the gap.
     """
     if len(history) < 2:
         return None
-    last, prev = history[-1], history[-2]
-    minutes = (last.timestamp - prev.timestamp).total_seconds() / 60.0
-    if not 0.5 * interval_min <= minutes <= 1.5 * interval_min:
+    last = history[-1]
+    prev: Reading | None = None
+    best = math.inf
+    for r in reversed(history[:-1]):
+        minutes = (last.timestamp - r.timestamp).total_seconds() / 60.0
+        if minutes > 1.5 * interval_min:
+            break
+        if minutes >= 0.5 * interval_min and abs(minutes - interval_min) < best:
+            prev, best = r, abs(minutes - interval_min)
+    if prev is None:
         return None
+    minutes = (last.timestamp - prev.timestamp).total_seconds() / 60.0
     return (last.glucose_mg_dl - prev.glucose_mg_dl) / minutes
 
 
