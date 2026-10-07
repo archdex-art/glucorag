@@ -47,5 +47,18 @@ android {
 dependencies {
     implementation(project(":shared"))
 
+    implementation(platform(libs.compose.bom))
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.wear.compose.material3)
+    implementation(libs.androidx.wear)
+    implementation(libs.protolayout)
+    implementation(libs.protolayout.material3)
+    implementation(libs.tiles)
+    implementation(libs.complications.datasource)
+    implementation(libs.play.services.wearable)
+    implementation(libs.datastore.preferences)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.play.services)
+
     testImplementation(libs.junit)
 }
