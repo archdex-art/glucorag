@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <!-- Debug builds only: inject a snapshot over adb without a phone. -->
+        <receiver
+            android:name="org.glucorag.wear.DebugSnapshotReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
+            <intent-filter>
+                <action android:name="org.glucorag.wear.DEBUG_SNAPSHOT" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>
