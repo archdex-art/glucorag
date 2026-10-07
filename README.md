@@ -79,6 +79,8 @@ A person who opens a staff page gets a 403 page.
 
 **Sessions:** the website signs in with an HttpOnly, `SameSite=Strict` session cookie; only a SHA-256 of the session token is stored. Writes made with the cookie must come from the same origin. Failed logins are throttled at 5 per 15 min per email (in process memory, so per server process). Behind TLS, set `GLUCORAG_COOKIE_SECURE=true` if the proxy does not send `X-Forwarded-Proto: https`.
 
+**Phones** sign in once with `POST /auth/token` (`{email, password, device}`, personal accounts only, same throttle as login) and send the returned token as `Authorization: Bearer <token>` for a year. Bearer requests need no `Origin` check; an invalid or revoked token is a 401 even if a cookie is also present. `GET /me/devices` lists signed-in phones and `DELETE /me/devices/{id}` signs one out; `POST /auth/logout` with the bearer header ends that phone's session.
+
 **Devices and scripts** use API keys (`X-API-Key`), which are optional: set `GLUCORAG_API_KEYS` only if something should push readings without an account. To fill the ward with a recorded series:
 ```bash
 GLUCORAG_API_KEY=change-me glucorag-replay data/raw/shanghai/Shanghai_T1DM/1001_0_20210730.xlsx \
@@ -87,8 +89,8 @@ GLUCORAG_API_KEY=change-me glucorag-replay data/raw/shanghai/Shanghai_T1DM/1001_
 For frontend development: `cd web && npm run dev` (Vite on :5173, API proxied to :8000). See `web/README.md`.
 
 **Endpoints:**
-- Accounts: `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/password`; `GET /auth/me`
-- Personal (session): `GET /me`, `PUT /me/profile`, `GET /me/status`, `GET /me/history`, `GET /me/alerts`, `POST /me/readings`, `POST /me/import?tz=&unit=&dates=` (CSV body), `POST /me/sample`, `GET /me/export`, `DELETE /me/readings`, `DELETE /me`
+- Accounts: `POST /auth/register`, `/auth/login`, `/auth/token`, `/auth/logout`, `/auth/password`; `GET /auth/me`
+- Personal (session or device token): `GET /me`, `PUT /me/profile`, `GET /me/status`, `GET /me/history`, `GET /me/alerts`, `POST /me/readings`, `POST /me/import?tz=&unit=&dates=` (CSV body), `POST /me/sample`, `GET /me/export`, `DELETE /me/readings`, `DELETE /me`, `GET /me/devices`, `DELETE /me/devices/{id}`
 - Staff (clinician session or API key): `POST /patients`, `POST /readings`, `GET /patients/{id}/forecast`, `GET /patients/{id}/history`, `GET /cohort/risk`, `GET /alerts`, `GET /export`, `GET /model`, `GET /stats`
 - `GET /metrics` (Prometheus), `GET /healthz`, `/ui/` (website)
 

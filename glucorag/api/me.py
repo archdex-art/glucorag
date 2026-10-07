@@ -1,4 +1,5 @@
-"""A signed-in person's own data: profile, readings, import, forecast, alerts, export, deletion.
+"""A signed-in person's own data: profile, readings, import, forecast, alerts, export, deletion,
+and the phones signed in with a device token.
 
 Times are stored as naive server-local wall-clock times. Every response here carries
 them as offset-aware ISO strings, so a browser in any time zone shows the user's own
@@ -19,6 +20,7 @@ from pydantic import BaseModel, Field
 from glucorag.api.deps import SESSION_COOKIE, CurrentUser, Service
 from glucorag.core.accounts import verify_password
 from glucorag.core.schemas import PatientProfile
+from glucorag.core.storage import DeviceSession
 from glucorag.ingest.importers import (
     MAX_BYTES,
     MMOL_TO_MG_DL,
@@ -312,3 +314,16 @@ def delete_account(
     service.forget_patient(user.patient_id, include_profile=True)
     service.storage.delete_user(user.id)
     response.delete_cookie(SESSION_COOKIE, path="/", samesite="strict", httponly=True)
+
+
+@router.get("/devices")
+def devices(user: CurrentUser, service: Service) -> list[DeviceSession]:
+    """Phones signed in with a device token (browser sessions are not listed)."""
+    return service.storage.device_sessions(user.id)
+
+
+@router.delete("/devices/{session_id}", status_code=204)
+def delete_device(session_id: int, user: CurrentUser, service: Service) -> None:
+    """Sign one phone out; 404 for ids that aren't the caller's, without saying whose."""
+    if not service.storage.delete_device_session(user.id, session_id):
+        raise HTTPException(404, "No such device.")

@@ -1,4 +1,5 @@
-"""Account routes: register, sign in, sign out, current account, change password."""
+"""Account routes: register, sign in (browser cookie or device token), sign out, current
+account, change password."""
 
 import re
 from datetime import UTC, datetime, timedelta
@@ -25,9 +26,11 @@ from glucorag.core.accounts import (
     verify_password,
 )
 from glucorag.core.storage import StoredUser, UserGoneError
+from glucorag.service import GlucoseService
 
 router = APIRouter(prefix="/auth")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+DEVICE_TOKEN_DAYS = 365
 
 
 class Credentials(BaseModel):
@@ -48,6 +51,16 @@ class AccountOut(BaseModel):
     role: Literal["person", "clinician"]
     unit: Literal["mg/dL", "mmol/L"]
     has_profile: bool
+
+
+class TokenIn(Credentials):
+    device: str = Field(min_length=1, max_length=64)
+
+
+class TokenOut(BaseModel):
+    token: str
+    expires_at: datetime
+    account: AccountOut
 
 
 class PasswordChange(BaseModel):
@@ -98,14 +111,10 @@ def register(
     return account_out(user, has_profile=False)
 
 
-@router.post("/login")
-def login(
-    body: Credentials,
-    request: Request,
-    response: Response,
-    service: Service,
-    throttle: Annotated[LoginThrottle, Depends(_throttle)],
-) -> AccountOut:
+def _check_credentials(
+    body: Credentials, service: GlucoseService, throttle: LoginThrottle
+) -> StoredUser:
+    """The account for these credentials, or 429 (throttled) / 401 (wrong email or password)."""
     wait = throttle.retry_after(body.email)
     if wait > 0:
         raise HTTPException(
@@ -118,12 +127,45 @@ def login(
         throttle.failure(body.email)
         raise HTTPException(401, "Email or password is incorrect.")
     throttle.success(body.email)
-    user = found[0]
+    return found[0]
+
+
+@router.post("/login")
+def login(
+    body: Credentials,
+    request: Request,
+    response: Response,
+    service: Service,
+    throttle: Annotated[LoginThrottle, Depends(_throttle)],
+) -> AccountOut:
+    user = _check_credentials(body, service, throttle)
     try:
         _start_session(request, response, user)
     except UserGoneError as e:  # deleted while its password was being checked
         raise HTTPException(401, "Email or password is incorrect.") from e
     return account_out(user, service.is_registered(user.patient_id))
+
+
+@router.post("/token")
+def issue_token(
+    body: TokenIn,
+    service: Service,
+    throttle: Annotated[LoginThrottle, Depends(_throttle)],
+) -> TokenOut:
+    """Sign a phone in: a long-lived bearer token for ``Authorization: Bearer``."""
+    user = _check_credentials(body, service, throttle)
+    if user.role != "person":
+        raise HTTPException(403, "Device sign-in is for personal accounts.")
+    token, hashed = new_session_token()
+    expires = datetime.now(UTC) + timedelta(days=DEVICE_TOKEN_DAYS)
+    try:
+        service.storage.create_session(hashed, user.id, expires, device=body.device)
+    except UserGoneError as e:  # deleted while its password was being checked
+        raise HTTPException(401, "Email or password is incorrect.") from e
+    return TokenOut(
+        token=token, expires_at=expires,
+        account=account_out(user, service.is_registered(user.patient_id)),
+    )
 
 
 @router.post("/logout", status_code=204)

@@ -1,25 +1,10 @@
 import pytest
-from _runtime import STEP, T0, tiny_artifact
-from fastapi.testclient import TestClient
+from _runtime import STEP, T0
 
-from glucorag.api.app import create_app
-from glucorag.api.settings import ApiSettings
 from glucorag.core.accounts import LoginThrottle, hash_password, verify_password
 
-KEY = "k"
 PASSWORD = "correct horse battery"
 PROFILE = {"age": 34, "gender": "F", "bmi": 22.5, "diabetes_type": "T1D"}
-
-
-@pytest.fixture
-def make_client(tmp_path):
-    model = tiny_artifact(tmp_path / "models", [40, 50, 60, 90, 120, 130, 140])
-
-    def make(**overrides):
-        base = {"model_path": model, "db_path": tmp_path / "db.sqlite", "api_keys": [KEY],
-                "clock": "data", "watchdog_interval_s": 0}
-        return TestClient(create_app(ApiSettings(**(base | overrides))))
-    return make
 
 
 def _register(c, email="a@example.com", password=PASSWORD):
