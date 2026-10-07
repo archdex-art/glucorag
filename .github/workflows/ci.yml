@@ -18,7 +18,7 @@ jobs:
           uv venv --clear
           uv pip install --index-strategy unsafe-best-match \
             --extra-index-url https://download.pytorch.org/whl/cpu \
-            -e ".[dev,sim]"
+            -e ".[dev]"
       - name: Lint
         run: uv run --no-sync ruff check .
       - name: Type-check
