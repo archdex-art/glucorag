@@ -1,10 +1,13 @@
+import pytest
+
+pytest.importorskip("simglucose", reason="sim extra not installed")
+
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from glucorag.inference.engine import Reading
 from glucorag.sim import cvga
