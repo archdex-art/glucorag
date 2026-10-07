@@ -38,7 +38,9 @@ const val RESEARCH_NOTICE = "Research prototype. Not a medical device. Don't use
  */
 @Composable
 fun HomeScreen(snapshot: Snapshot?, nowMs: Long, phoneConnected: Boolean?, ambient: Boolean) {
-    val listState = rememberScalingLazyListState()
+    // Centre the headline on first show: the round screen is widest there, so the two-line
+    // sentence never runs into the curved edge (it did on the 396 px Watch4 Classic 42 mm).
+    val listState = rememberScalingLazyListState(initialCenterItemIndex = 0)
     ScreenScaffold(scrollState = listState) { contentPadding ->
         ScalingLazyColumn(
             modifier = Modifier.fillMaxWidth(),
@@ -63,6 +65,7 @@ private fun ScalingLazyListScope.content(s: Snapshot?, nowMs: Long, phoneConnect
             style = MaterialTheme.typography.titleMedium,
             color = if (ambient) Colors.Ink2 else sentenceColor(status.kind),
             textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 12.dp),
         )
     }
 

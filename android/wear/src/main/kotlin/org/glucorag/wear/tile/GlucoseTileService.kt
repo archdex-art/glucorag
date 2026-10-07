@@ -46,8 +46,10 @@ class GlucoseTileService : Material3TileService() {
             mainSlot = { column(*lines(snapshot, nowMs).toTypedArray()) },
             onClick = open,
         )
+        // Re-rendered every minute: "in N min", staleness and forecast expiry are relative to now.
         return Tile.Builder()
             .setResourcesVersion(RESOURCES_VERSION)
+            .setFreshnessIntervalMillis(FRESHNESS_MS)
             .setTileTimeline(Timeline.fromLayoutElement(layout))
             .build()
     }
@@ -73,5 +75,6 @@ class GlucoseTileService : Material3TileService() {
 
     private companion object {
         const val RESOURCES_VERSION = "1"
+        const val FRESHNESS_MS = 60_000L
     }
 }

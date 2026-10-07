@@ -93,7 +93,10 @@ fun TodayScreen(server: String?, onSettings: () -> Unit, onSignIn: () -> Unit) {
             Sheet {
                 SectionTitle("The last 3 hours and the next hour")
                 GlucoseChart(s, now, chartDescription(s, now))
-                Hint("Line: your readings. Shaded: the forecast band for the next hour. Rules at 70 and 180 mg/dL.")
+                Hint(
+                    "Line: your readings. Shaded: the forecast band for the next hour. Rules at " +
+                        "${formatGlucose(70.0, s.unit)} and ${formatGlucose(180.0, s.unit)} ${s.unit.label}.",
+                )
             }
         }
         Sheet {
@@ -123,8 +126,14 @@ private fun Answer(snapshot: Snapshot?, now: Long) {
         status.kind == StatusKind.LOW_NOW || status.kind == StatusKind.LOW_SOON -> c.zoneFill.getValue(org.glucorag.shared.Zone.LOW)
         else -> c.zoneFill.getValue(org.glucorag.shared.Zone.HIGH)
     }
+    // The shared sentences speak from the watch; two of them need the phone's own words.
+    val sentence = when (status.kind) {
+        StatusKind.OPEN_PHONE -> if (snapshot?.server?.state == "needs_setup") "Finish setup on the website" else "Sign in again to see your forecast"
+        StatusKind.WAITING -> "Waiting for the first upload"
+        else -> status.sentence
+    }
     Text(
-        status.sentence,
+        sentence,
         style = MaterialTheme.typography.headlineSmall,
         color = if (urgentColor != null) Color(0xFF0E2742) else c.ink,
         modifier = Modifier

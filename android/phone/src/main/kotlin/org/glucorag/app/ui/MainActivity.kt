@@ -13,6 +13,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -52,7 +53,8 @@ private fun App(resumeTick: Int) {
     val local = LocalState.get(context)
     val reading by local.reading.collectAsState()
     val sync by local.sync.collectAsState()
-    var screen by remember { mutableStateOf<Screen?>(null) }
+    // Saveable: the screen survives rotation and dark-mode switches (activity recreation).
+    var screen by rememberSaveable { mutableStateOf<Screen?>(null) }
 
     val s = session ?: return
     val current = screen ?: when {

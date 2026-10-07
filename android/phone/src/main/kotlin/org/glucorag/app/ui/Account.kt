@@ -11,6 +11,14 @@ import org.glucorag.app.net.GlucoApi
 import org.glucorag.app.sync.SyncWorker
 import org.glucorag.shared.ServerUrlCheck
 import org.glucorag.shared.checkServerUrl
+import org.glucorag.app.data.Session
+
+/**
+ * The session after signing in: a fresh one. Alert and thinning markers start over, so the
+ * first readings are never compared with another account's last queued reading.
+ */
+internal fun signedIn(base: String, token: String, email: String, unit: String): Session =
+    Session(server = base, token = token, email = email, unit = unit)
 
 /** Sign-in, server check and sign-out, outside the UI so screens stay declarative. */
 object Account {
@@ -48,9 +56,7 @@ object Account {
         return when (val r = api(base).signIn(email.trim(), password, device)) {
             is ApiResult.Ok -> {
                 val out = r.value
-                SessionStore(context).update {
-                    it.copy(server = base, token = out.token, email = out.account.email, unit = out.account.unit, lastAlertId = null)
-                }
+                SessionStore(context).update { signedIn(base, out.token, out.account.email, out.account.unit) }
                 LocalState.get(context).clear()
                 SyncWorker.enqueue(context)
                 Result.Ok("Signed in as ${out.account.email}", out.account.hasProfile)
