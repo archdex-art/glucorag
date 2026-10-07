@@ -90,7 +90,7 @@ For frontend development: `cd web && npm run dev` (Vite on :5173, API proxied to
 
 **Endpoints:**
 - Accounts: `POST /auth/register`, `/auth/login`, `/auth/token`, `/auth/logout`, `/auth/password`; `GET /auth/me`
-- Personal (session or device token): `GET /me`, `PUT /me/profile`, `GET /me/status`, `GET /me/history`, `GET /me/alerts`, `POST /me/readings`, `POST /me/import?tz=&unit=&dates=` (CSV body), `POST /me/sample`, `GET /me/export`, `DELETE /me/readings`, `DELETE /me`, `GET /me/devices`, `DELETE /me/devices/{id}`
+- Personal (session or device token): `GET /me`, `PUT /me/profile`, `GET /me/status`, `GET /me/history`, `GET /me/alerts?after_id=` (with `after_id`: only newer alerts, oldest first), `POST /me/readings`, `POST /me/readings/batch` (offset-aware times, up to `max_batch`), `POST /me/import?tz=&unit=&dates=` (CSV body), `POST /me/sample`, `GET /me/export`, `DELETE /me/readings`, `DELETE /me`, `GET /me/devices`, `DELETE /me/devices/{id}`
 - Staff (clinician session or API key): `POST /patients`, `POST /readings`, `GET /patients/{id}/forecast`, `GET /patients/{id}/history`, `GET /cohort/risk`, `GET /alerts`, `GET /export`, `GET /model`, `GET /stats`
 - `GET /metrics` (Prometheus), `GET /healthz`, `/ui/` (website)
 

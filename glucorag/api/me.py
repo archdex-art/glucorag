@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from glucorag.api.deps import SESSION_COOKIE, CurrentUser, Service
 from glucorag.core.accounts import verify_password
@@ -58,6 +58,26 @@ class ReadingIn(BaseModel):
     timestamp: datetime
     glucose: float = Field(gt=0)
     unit: Unit = "mg/dL"
+
+
+class BatchReading(BaseModel):
+    timestamp: datetime
+    glucose_mg_dl: float = Field(gt=0)
+
+    @field_validator("timestamp")
+    @classmethod
+    def _offset_required(cls, t: datetime) -> datetime:
+        if t.tzinfo is None:
+            raise ValueError("timestamp needs a UTC offset")
+        return t
+
+
+class BatchIn(BaseModel):
+    readings: list[BatchReading]
+
+
+# Plausible CGM range; values outside it are sensor or transfer errors, not clipped.
+BATCH_MIN_MG_DL, BATCH_MAX_MG_DL = 20.0, 600.0
 
 
 class DeleteAccountIn(BaseModel):
@@ -188,11 +208,17 @@ def history(
 
 @router.get("/alerts")
 def alerts(
-    user: CurrentUser, service: Service, limit: Annotated[int, Query(gt=0, le=2000)] = 200
+    user: CurrentUser,
+    service: Service,
+    limit: Annotated[int, Query(gt=0, le=2000)] = 200,
+    after_id: Annotated[int | None, Query(ge=0)] = None,
 ) -> JSONResponse:
+    """Newest first; with ``after_id``, only newer alerts, oldest first (for polling)."""
     _require_profile(user, service)
-    rows = service.storage.alerts(user.patient_id, limit=limit)
-    return local_json([a.model_dump(mode="python") for a in reversed(rows)])
+    rows = service.storage.alerts(user.patient_id, limit=limit, after_id=after_id)
+    if after_id is None:
+        rows.reverse()
+    return local_json([a.model_dump(mode="python") for a in rows])
 
 
 @router.post("/readings")
@@ -205,6 +231,35 @@ def add_reading(body: ReadingIn, user: CurrentUser, service: Service) -> JSONRes
             {"reason": result.reason, "detail": result.detail}, status_code=422
         )
     return local_json(result)
+
+
+@router.post("/readings/batch")
+def add_readings_batch(
+    body: BatchIn, request: Request, user: CurrentUser, service: Service
+) -> JSONResponse:
+    """Readings uploaded by a phone in any order; re-sent ones count as ``already_present``."""
+    _require_profile(user, service)
+    max_batch = request.app.state.max_batch
+    if len(body.readings) > max_batch:
+        raise HTTPException(413, f"Batch larger than {max_batch} readings")
+    # Replay mode (data clock) has no "future": readings define time there.
+    now = service.clock.now() if service.clock.checks_future else None
+    rejected: list[dict[str, Any]] = []
+    survivors: list[tuple[datetime, float]] = []
+    for r in body.readings:
+        t = to_local_naive(r.timestamp)
+        if not BATCH_MIN_MG_DL <= r.glucose_mg_dl <= BATCH_MAX_MG_DL:
+            rejected.append({"timestamp": t, "reason": "out_of_range"})
+        elif now is not None and t > now + service.config.max_future_skew:
+            rejected.append({"timestamp": t, "reason": "future"})
+        else:
+            survivors.append((t, r.glucose_mg_dl))
+    result = service.backfill(user.patient_id, survivors)
+    return local_json({
+        "accepted": result.added,
+        "already_present": result.outcomes.get("already_present", 0),
+        "rejected": rejected,
+    })
 
 
 @router.post("/import")
@@ -269,7 +324,8 @@ def load_sample(user: CurrentUser, service: Service) -> JSONResponse:
             "Delete your readings first."
         )
     end = datetime.now().replace(second=0, microsecond=0)
-    rows = list(csv.DictReader(SAMPLE_CSV.open()))
+    with SAMPLE_CSV.open() as f:
+        rows = list(csv.DictReader(f))
     readings = [
         (end - timedelta(minutes=int(r["minutes_before_end"])), float(r["glucose_mg_dl"]))
         for r in rows

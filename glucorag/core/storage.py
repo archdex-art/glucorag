@@ -391,8 +391,13 @@ class Storage:
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int | None = None,
+        after_id: int | None = None,
     ) -> list[StoredAlert]:
-        """Alerts ascending by ``t_raised``; with ``limit``, the most recent ones."""
+        """Alerts ascending by ``t_raised``; with ``limit``, the most recent ones.
+
+        With ``after_id``: only alerts with a larger id, ascending by id; with ``limit``,
+        the oldest of those (so a poller can page forward without skipping any).
+        """
         clauses, params = ["1=1"], []
         if patient_id:
             clauses.append("patient_id=?")
@@ -400,11 +405,17 @@ class Storage:
         if alert_type:
             clauses.append("type=?")
             params.append(alert_type)
+        if after_id is not None:
+            clauses.append("id>?")
+            params.append(after_id)
         where, params = self._range(" AND ".join(clauses), params, "t_raised", since, until)
-        sql = f"SELECT * FROM alerts WHERE {where} ORDER BY t_raised DESC, id DESC"
+        order = "id ASC" if after_id is not None else "t_raised DESC, id DESC"
+        sql = f"SELECT * FROM alerts WHERE {where} ORDER BY {order}"
         if limit is not None:
             sql += f" LIMIT {int(limit)}"
         rows = self._rows(sql, tuple(params))
+        if after_id is None:
+            rows = list(reversed(rows))
         return [
             StoredAlert(
                 id=r["id"],
@@ -417,7 +428,7 @@ class Storage:
                 model_version=r["model_version"],
                 details=json.loads(r["details_json"]),
             )
-            for r in reversed(rows)
+            for r in rows
         ]
 
     @staticmethod
