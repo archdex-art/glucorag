@@ -75,7 +75,23 @@ class GlucoApi(base: String, private val client: OkHttpClient, private val token
             authorize = false,
         )
 
+    /**
+     * Sign this device in with a one-time pairing code from the website. A refused code is
+     * [ApiResult.Http] 401 carrying the server's explanation, not [ApiResult.Unauthorized].
+     */
+    suspend fun pair(code: String, device: String): ApiResult<TokenOut> =
+        call(
+            Request.Builder().url(url("auth/pair")).post(jsonBody(PairIn.serializer(), PairIn(code, device))),
+            TokenOut.serializer(),
+            authorize = false,
+            detailOn401 = true,
+        )
+
     suspend fun account(): ApiResult<AccountOut> = get("auth/me", AccountOut.serializer())
+
+    /** Saves the four facts the forecast needs and the display unit. */
+    suspend fun putProfile(profile: ProfileIn): ApiResult<ProfileSaved> =
+        call(Request.Builder().url(url("me/profile")).put(jsonBody(ProfileIn.serializer(), profile)), ProfileSaved.serializer())
 
     suspend fun status(): ApiResult<StatusDto> = get("me/status", StatusDto.serializer())
 
@@ -111,12 +127,16 @@ class GlucoApi(base: String, private val client: OkHttpClient, private val token
     private suspend fun <T> get(path: String, serializer: KSerializer<T>, vararg query: Pair<String, String>) =
         call(Request.Builder().url(url(path, *query)).get(), serializer)
 
-    /** [noContent], when given, is the result of a successful reply with an empty body (204). */
+    /**
+     * [noContent], when given, is the result of a successful reply with an empty body (204).
+     * [detailOn401]: a 401 is [ApiResult.Http] with the server's `detail` (a refused code, not a lost token).
+     */
     private suspend fun <T> call(
         builder: Request.Builder,
         serializer: KSerializer<T>,
         authorize: Boolean = true,
         noContent: T? = null,
+        detailOn401: Boolean = false,
     ): ApiResult<T> {
         if (authorize) token()?.takeIf { it.isNotBlank() }?.let { builder.header("Authorization", "Bearer $it") }
         return try {
@@ -132,7 +152,7 @@ class GlucoApi(base: String, private val client: OkHttpClient, private val token
                     } catch (e: DateTimeException) {
                         ApiResult.Http(response.code, UNREADABLE)
                     }
-                    response.code == 401 -> ApiResult.Unauthorized
+                    response.code == 401 && !detailOn401 -> ApiResult.Unauthorized
                     response.code == 409 -> ApiResult.NeedsSetup
                     else -> ApiResult.Http(
                         response.code,

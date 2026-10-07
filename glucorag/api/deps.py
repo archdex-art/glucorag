@@ -41,6 +41,7 @@ class Principal:
     kind: Literal["api_key", "session"]
     user: StoredUser | None = None
     session_hash: str | None = None
+    bearer: bool = False  # a phone's device token rather than the browser cookie
 
     @property
     def is_staff(self) -> bool:
@@ -89,7 +90,7 @@ def optional_principal(
         if user is None:  # never fall back to the cookie: the app must sign in again
             raise HTTPException(401, "Sign in again on this device", {"WWW-Authenticate": "Bearer"})
         storage.touch_session(hashed, now)
-        return Principal("session", user, hashed)
+        return Principal("session", user, hashed, bearer=True)
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return None

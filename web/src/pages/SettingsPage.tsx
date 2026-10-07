@@ -1,10 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, LogOut, Trash2, Unplug } from 'lucide-react';
+import { Download, LogOut, QrCode, RefreshCw, Trash2, Unplug, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, errorMessage } from '../api/errors';
 import { DEVICES_KEY, ME_KEY, useDevices, useMe, useMeStatus } from '../api/hooks';
-import type { Device, MeInfo, MeStatus, ProfileInput, Sensitivity, Unit } from '../api/types';
+import type { Device, MeInfo, MeStatus, PairingCode, ProfileInput, Sensitivity, Unit } from '../api/types';
 import { useAccount, useApi, useAuth } from '../auth/context';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Field, FieldError, PasswordInput } from '../components/Field';
@@ -17,6 +17,7 @@ import { describeDevice } from '../lib/devices';
 import { saveBlob } from '../lib/download';
 import { quantileIndex, sortForecast } from '../lib/forecast';
 import { fmtInt, fmtQuantile } from '../lib/format';
+import { formatCountdown, secondsLeft } from '../lib/pairing';
 import { forgetSource } from '../lib/source';
 import { formatDateTime, formatWhen, tryParseApiTime } from '../lib/time';
 import { UNITS, formatGlucose } from '../lib/units';
@@ -355,22 +356,140 @@ function DataSection({ me }: { me: MeInfo }) {
   );
 }
 
+/** While open the devices list is polled this often, so a phone that pairs shows up. */
+const PAIR_POLL_MS = 5_000;
+
+interface PairingPanelProps {
+  pairing: PairingCode | null;
+  busy: boolean;
+  error: string | null;
+  onRenew: () => void;
+  onClose: () => void;
+}
+
+/** The pairing QR and code with a live countdown; mounted only while open. */
+function PairingPanel({ pairing, busy, error, onRenew, onClose }: PairingPanelProps) {
+  const headingId = useId();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const left = pairing ? secondsLeft(pairing.expires_at, now) : 0;
+  const expired = pairing !== null && left === 0;
+
+  return (
+    <div className="pair-panel" role="region" aria-labelledby={headingId}>
+      <div className="pair-top">
+        <h3 id={headingId}>Connect a phone</h3>
+        <button type="button" className="button button-quiet" onClick={onClose}>
+          <X {...ICON} />
+          Close
+        </button>
+      </div>
+      <p className="pair-steps">Open GlucoRAG on your phone and tap Scan QR code. Or point your phone&apos;s camera at the code.</p>
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {pairing === null && busy ? <Skeleton label="Making a pairing code" rows={3} variant="block" /> : null}
+      {pairing ? (
+        <div className="pair-body">
+          {/* The CSP allows data: images, and an <img> never runs script inside an SVG. */}
+          <img
+            className={expired ? 'pair-qr pair-qr-expired' : 'pair-qr'}
+            src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(pairing.qr_svg)}`}
+            alt={`QR code for pairing code ${pairing.code}`}
+          />
+          <dl className="pair-facts">
+            <div>
+              <dt>Pairing code</dt>
+              <dd className="pair-code">{pairing.code}</dd>
+              <dd className="pair-expiry num">{expired ? 'Expired' : `Expires in ${formatCountdown(left)}`}</dd>
+            </div>
+            <div>
+              <dt>Server address</dt>
+              <dd className="pair-server">
+                <code>{pairing.server_url}</code>
+              </dd>
+              {pairing.server_url_guessed ? (
+                <dd className="pair-note">If your phone can&apos;t reach this address, set GLUCORAG_PUBLIC_URL</dd>
+              ) : null}
+            </div>
+          </dl>
+        </div>
+      ) : null}
+      <p role="status" className="pair-status">
+        {expired ? 'This code has expired. Make a new one.' : pairing ? 'Waiting for your phone. This list updates when it connects.' : null}
+      </p>
+      <div>
+        <button type="button" className="button" disabled={busy} onClick={onRenew}>
+          <RefreshCw {...ICON} />
+          {busy ? 'Making a new code' : 'Make a new code'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Phones signed in with a device token; the Add-data choices link here as `/settings#devices`. */
 function DevicesSection() {
   const api = useApi();
   const queryClient = useQueryClient();
-  const devices = useDevices();
+  const canPair = useAccount().role === 'person';
+  // Device ids present when the pairing panel opened; null while it is closed.
+  const [known, setKnown] = useState<ReadonlySet<number> | null>(null);
+  const devices = useDevices(known ? PAIR_POLL_MS : false);
   const { hash } = useLocation();
   const ref = useRef<HTMLElement>(null);
   const [target, setTarget] = useState<Device | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pairing, setPairing] = useState<PairingCode | null>(null);
+  const [pairBusy, setPairBusy] = useState(false);
+  const [pairError, setPairError] = useState<string | null>(null);
+  const [connected, setConnected] = useState<string | null>(null);
   // Relative times are as of the fetch; the list refetches when the window regains focus.
   const now = devices.dataUpdatedAt;
+
+  // A device that appeared while the panel is open is the phone that just paired: close the
+  // panel once (adjusting state during render, so a later disconnect cannot reopen it).
+  const added = known ? devices.data?.find((d) => !known.has(d.id)) : undefined;
+  if (added) {
+    setKnown(null);
+    setPairing(null);
+    setConnected(`Phone connected: ${added.device}.`);
+  }
 
   useEffect(() => {
     if (hash === '#devices' && !devices.isPending) ref.current?.scrollIntoView({ block: 'start' });
   }, [hash, devices.isPending]);
+
+  async function makeCode() {
+    setPairBusy(true);
+    setPairError(null);
+    try {
+      setPairing(await api.createPairing());
+    } catch (err) {
+      setPairError(errorMessage(err));
+    } finally {
+      setPairBusy(false);
+    }
+  }
+
+  function openPairing() {
+    setKnown(new Set((devices.data ?? []).map((d) => d.id)));
+    setConnected(null);
+    setPairing(null);
+    void makeCode();
+  }
+
+  function closePairing() {
+    setKnown(null);
+    setPairing(null);
+    setPairError(null);
+  }
 
   async function disconnect(device: Device) {
     setBusy(true);
@@ -394,34 +513,48 @@ function DevicesSection() {
           <p className="muted">No phone connected. Install the GlucoRAG phone app to stream readings from Juggluco or xDrip+.</p>
         ) : null}
       </div>
-      {devices.isPending ? <Skeleton label="Loading connected devices" rows={2} /> : null}
-      {devices.isError ? (
-        <ErrorState error={devices.error} title="Connected devices could not be loaded." onRetry={() => void devices.refetch()} />
-      ) : null}
-      {devices.data?.length ? (
-        <ul className="device-list">
-          {devices.data.map((d) => (
-            <li key={d.id} className="device-row">
-              <div className="device-text">
-                <p className="device-name">{d.device}</p>
-                <p className="device-meta num">{describeDevice(d, now)}</p>
-              </div>
-              <button
-                type="button"
-                className="button button-danger-quiet"
-                aria-label={`Disconnect ${d.device}`}
-                onClick={() => {
-                  setError(null);
-                  setTarget(d);
-                }}
-              >
-                <Unplug {...ICON} />
-                Disconnect
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <div className="device-body">
+        {devices.isPending ? <Skeleton label="Loading connected devices" rows={2} /> : null}
+        {devices.isError ? (
+          <ErrorState error={devices.error} title="Connected devices could not be loaded." onRetry={() => void devices.refetch()} />
+        ) : null}
+        {devices.data?.length ? (
+          <ul className="device-list">
+            {devices.data.map((d) => (
+              <li key={d.id} className="device-row">
+                <div className="device-text">
+                  <p className="device-name">{d.device}</p>
+                  <p className="device-meta num">{describeDevice(d, now)}</p>
+                </div>
+                <button
+                  type="button"
+                  className="button button-danger-quiet"
+                  aria-label={`Disconnect ${d.device}`}
+                  onClick={() => {
+                    setError(null);
+                    setTarget(d);
+                  }}
+                >
+                  <Unplug {...ICON} />
+                  Disconnect
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <Saved text={connected} />
+        {canPair && known ? (
+          <PairingPanel pairing={pairing} busy={pairBusy} error={pairError} onRenew={() => void makeCode()} onClose={closePairing} />
+        ) : null}
+        {canPair && !known ? (
+          <div>
+            <button type="button" className="button button-primary" disabled={!devices.data} onClick={openPairing}>
+              <QrCode {...ICON} />
+              Connect a phone
+            </button>
+          </div>
+        ) : null}
+      </div>
       <ConfirmDialog
         open={target !== null}
         title={`Disconnect ${target?.device ?? ''}?`}
@@ -643,7 +776,8 @@ export function SettingsPage() {
           <section className="sheet-section prose-block">
             <h2>Set up your profile</h2>
             <p>
-              Forecasts need four facts about you. <Link to="/setup">Set up your profile</Link> first.
+              Forecasts need four facts about you. <Link to="/setup">Set up your profile</Link> here, or connect your phone below and
+              set it up in the app.
             </p>
           </section>
         ) : null}
@@ -655,7 +789,7 @@ export function SettingsPage() {
             <DataSection me={sections} />
           </>
         ) : null}
-        {sections || !person ? <DevicesSection /> : null}
+        {me.data || !person ? <DevicesSection /> : null}
         {!person || me.data ? <AccountSection me={me.data ?? null} /> : null}
       </div>
     </>

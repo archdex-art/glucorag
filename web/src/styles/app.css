@@ -2738,6 +2738,98 @@ a.button:not(.button-primary) {
   color: var(--ink-2);
 }
 
+.device-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.pair-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sheet);
+  background: var(--wash);
+}
+
+.pair-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pair-top h3 {
+  font-size: var(--fs-body);
+}
+
+.pair-steps {
+  font-size: var(--fs-row);
+}
+
+.pair-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.25rem 2rem;
+}
+
+/* The QR keeps its own white quiet zone in dark mode too: scanners need dark-on-light. */
+.pair-qr {
+  display: block;
+  width: 12rem;
+  max-width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  transition: opacity var(--dur) var(--ease-out);
+}
+
+.pair-qr-expired {
+  opacity: 0.25;
+}
+
+.pair-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.pair-facts dt {
+  font-size: var(--fs-meta);
+  color: var(--ink-2);
+}
+
+.pair-facts dd {
+  margin: 0;
+}
+
+.pair-code {
+  font-family: var(--mono);
+  font-size: var(--fs-readout);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+
+.pair-expiry,
+.pair-note,
+.pair-status {
+  font-size: var(--fs-row);
+  color: var(--ink-2);
+}
+
+.pair-server code {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1099.98px) {
   .today-top {
     grid-template-columns: minmax(0, 1fr);

@@ -52,8 +52,8 @@ GLUCORAG_SIM_REPORT=reports/sim/report.json glucorag-serve
 Allow incoming connections when macOS asks. Find the Mac's address with
 `ipconfig getifaddr en0` (for example `192.168.1.20`); the phone uses `http://192.168.1.20:8000`.
 
-Create your account and profile on the website (`http://192.168.1.20:8000/ui/`) first: the forecast
-needs your diabetes type, age, sex and BMI.
+Create your account on the website (`http://192.168.1.20:8000/ui/`) first. Your details (diabetes
+type, age, sex and BMI) can be entered there or in the phone app.
 
 **Plain HTTP** is accepted only for home and Tailscale addresses (10.x, 172.16–31.x, 192.168.x,
 169.254.x, loopback, 100.64–127.x, `*.local`, `*.ts.net`). Any other address must use `https://`,
@@ -69,18 +69,40 @@ certificate logs, so don't put personal details in the machine name).
 
 Install the phone app (`adb install phone-debug.apk`, with USB or wireless debugging on the phone).
 
-1. **Connect:** enter the server address, tap **Check server** (it should say "Connected to
-   GlucoRAG shanghai-v1"), then sign in.
-2. **Where your readings come from:** GlucoRAG reads what Juggluco or xDrip+ share with other
+1. **Connect:** on the website, open Settings → Connected devices → **Connect a phone**. On the
+   phone, tap **Scan QR code** (Google's code scanner; GlucoRAG itself needs no camera permission)
+   and point it at the QR code: the phone takes the server address from it and signs in. Scanning
+   the QR with the phone's camera app also opens GlucoRAG (`glucorag://pair?server=…&code=…`); if
+   the phone is already signed in to an account, it asks before switching.
+   - **Enter pairing code** instead: type the server address and the 8-character code shown under
+     the QR (`ABCD-EFGH`; case and the dash don't matter). Codes work once and for 10 minutes.
+   - **Sign in with email instead** keeps the old way: server address, **Check server** (it should
+     say "Connected to GlucoRAG shanghai-v1"), email and password.
+   - When the website runs on `localhost`, the QR carries the Mac's LAN address; set
+     `GLUCORAG_PUBLIC_URL` on the server when that guess is wrong (for example with Tailscale).
+2. **About you** (only if the account has no profile yet): diabetes type, age, sex, and BMI, from
+   height and weight (cm and kg, or feet, inches and pounds in the US, Liberia and Myanmar) or typed
+   directly; and the glucose unit (mg/dL where meters customarily read it, mmol/L elsewhere).
+3. **Where your readings come from:** GlucoRAG reads what Juggluco or xDrip+ share with other
    apps. If you only use the official Libre or Dexcom app, add one of them; both read the same
-   sensors. Each only sends to apps you name:
+   sensors. Each only sends to apps you name. Installed apps are listed first with an **Open
+   Juggluco** / **Open xDrip+** button that copies `org.glucorag.app` to the clipboard and opens
+   the app, so you can paste it:
    - **Juggluco:** Settings → **Glucodata broadcast** → tick `org.glucorag.app`.
    - **xDrip+:** Settings → Inter-app settings → **Broadcast locally** on, **Identify receiver**
      = `org.glucorag.app`, **Compatible Broadcast** on. Without Identify receiver, Android doesn't
      deliver xDrip+'s broadcast to other apps.
 
-   The screen shows "Receiving: 142 mg/dL at 14:05" once readings arrive.
-3. **Keep readings flowing:**
+   With neither installed, **Get Juggluco** opens Google Play and **Get xDrip+** its GitHub
+   releases. The screen re-checks when you come back to it. Once the first reading arrives it says
+   "Receiving readings from Juggluco" and moves on by itself (**Continue** still works).
+
+   **No sensor at hand?** **Try with simulated readings** feeds made-up readings through the same
+   path: the last 3 hours at once, then one every 5 minutes (a meal rise, then a slow fall to just
+   under 70 mg/dL, so the forecast and the low alert have something to do). They upload to your
+   account like real readings. Today shows "Simulated readings, not from a sensor" with **Stop**
+   while they run; Settings has a switch; signing out stops them.
+4. **Keep readings flowing:**
    - allow notifications;
    - Samsung: add GlucoRAG to **Never sleeping apps** (the button opens the list), and set the
      app's battery use to **Unrestricted**. Sleeping apps lose background work, so uploads stop;

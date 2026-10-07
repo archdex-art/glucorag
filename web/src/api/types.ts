@@ -255,6 +255,20 @@ export interface Device {
   last_used_at: ApiDateTime | null;
 }
 
+/** `POST /me/pairing`: a single-use code that signs a phone in, valid for 10 minutes. */
+export interface PairingCode {
+  /** `ABCD-EFGH`. */
+  code: string;
+  expires_at: ApiDateTime;
+  /** The address the phone will use; guessed from the network when the site is opened on localhost. */
+  server_url: string;
+  server_url_guessed: boolean;
+  /** `glucorag://pair?server=…&code=…`, what the QR encodes. */
+  uri: string;
+  /** Server-drawn standalone SVG of the QR. */
+  qr_svg: string;
+}
+
 export interface MeStatus {
   status: PatientRisk;
   /** The latest stored forecast, current or not. */

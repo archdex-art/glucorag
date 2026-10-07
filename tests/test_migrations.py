@@ -33,8 +33,10 @@ def test_v0_database_upgrades(tmp_path):
     Storage(path).close()  # reopening an upgraded file is a no-op
 
     conn = sqlite3.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == Storage.SCHEMA_VERSION == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == Storage.SCHEMA_VERSION == 2
     assert {"device", "last_used_at"} <= _columns(conn)
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "pairing_codes" in tables
     rows = conn.execute("SELECT token_hash, user_id, device, last_used_at FROM sessions")
     assert rows.fetchall() == [("tok", 1, None, None)]
     conn.close()
@@ -47,7 +49,7 @@ def test_v0_database_upgrades(tmp_path):
 def test_fresh_database_is_current(tmp_path):
     for target in (tmp_path / "fresh.db", ":memory:"):
         storage = Storage(target)
-        assert storage._rows("PRAGMA user_version")[0][0] == 1
+        assert storage._rows("PRAGMA user_version")[0][0] == 2
         storage.close()
 
 

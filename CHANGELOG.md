@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 — 2026-10-08
+- **Pair a phone with a QR code.** No typing of server addresses or passwords on the phone.
+  - Server: `POST /me/pairing` (browser session of a personal account) makes an 8-character code (`ABCD-EFGH`, no 0/O/1/I) valid for 10 minutes, with a `glucorag://pair?server=…&code=…` link and its QR code drawn as SVG on the server (new dependency: `segno`). `POST /auth/pair` (`{code, device}`) redeems it for the same one-year device token as `POST /auth/token`. Codes are single use, stored only as SHA-256, and a new code cancels the previous unused one; failed redemptions are throttled per client address (5 per 15 min). Deleting the account deletes its codes.
+  - The QR carries the server address: `GLUCORAG_PUBLIC_URL` when set (new setting); otherwise the address the browser used, with `localhost` replaced by this computer's LAN address.
+  - Database schema version 2 adds the `pairing_codes` table (applied on start).
+  - Website: Settings > Connected devices gains **Connect a phone**: the QR, the code in large type, the server address (with a hint to set `GLUCORAG_PUBLIC_URL` when it was guessed), a countdown and **Make a new code**. The list refreshes every 5 s while the panel is open and says "Phone connected" when the phone appears. Connected devices now also shows before the profile is set up, since the phone app can set it up. "Live from your phone" on Add data links to it.
+  - Phone app (0.2.0): Connect leads with **Scan QR code** (Google's code scanner, no camera permission) and **Enter pairing code**; email and password move behind **Sign in with email instead**. A `glucorag://pair` link (the phone's camera app scanning the QR) opens the app and pairs, asking first when another account is signed in; switching accounts revokes the old device token.
+- **Phone app: set up without the website.**
+  - **About you** in the app replaces "Finish setup on the website": diabetes type, age, sex, BMI from height and weight (cm/kg, or ft-in/lb in the US, Liberia and Myanmar) or typed directly, and the glucose unit (default from the phone's region); saved with `PUT /me/profile`. Today offers **Enter your details** when the account still lacks them.
+  - Where your readings come from lists installed CGM apps first, with **Open Juggluco** / **Open xDrip+** (copies `org.glucorag.app`, then opens the app); with neither installed, **Get Juggluco** (Google Play) and **Get xDrip+** (GitHub releases). It re-checks on return and moves on by itself once the first reading arrives.
+  - **Try with simulated readings**: a made-up trace (a meal rise, then a slow fall to just under 70 mg/dL) fed through the same queue and upload as real readings: the last 3 hours at once, then one every 5 minutes. Today labels it "Simulated readings, not from a sensor" with **Stop**; Settings has a switch; sign-out stops it.
+
 ## 0.5.0 — 2026-10-07
 - **Wear OS watch app and Android phone app** (`android/`). Design: `docs/superpowers/specs/2026-10-06-glucorag-wear-design.md`; set-up: `android/README.md`.
   - The phone receives readings live from Juggluco (`glucodata.Minute`) or xDrip+ (`BgEstimate`), uploads about one every 5 minutes, queues them while the server is out of reach, posts alerts for predicted lows and highs (medium or high severity, once each), and sends the watch a snapshot.

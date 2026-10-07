@@ -139,6 +139,28 @@ data class RejectedReading(
 @Serializable
 internal data class TokenIn(val email: String, val password: String, val device: String)
 
+/** `POST /auth/pair`: a one-time code from the website instead of a password. */
+@Serializable
+internal data class PairIn(val code: String, val device: String)
+
+/**
+ * `PUT /me/profile`: [gender] `F` | `M`, [diabetesType] `T1D` | `T2D`, [sensitivity]
+ * `standard` | `cautious` | `very_cautious`, [unit] `mg/dL` | `mmol/L`.
+ */
+@Serializable
+data class ProfileIn(
+    val age: Int,
+    val gender: String,
+    val bmi: Double,
+    @SerialName("diabetes_type") val diabetesType: String,
+    val sensitivity: String,
+    val unit: String,
+)
+
+/** The account `PUT /me/profile` answers with, reduced to the unit it now shows. */
+@Serializable
+data class ProfileSaved(val unit: String)
+
 @Serializable
 internal data class BatchIn(val readings: List<BatchReading>)
 

@@ -2,6 +2,7 @@ package org.glucorag.app.ui
 
 import org.glucorag.app.data.SyncState
 import org.glucorag.app.data.SyncSummary
+import org.glucorag.app.source.SimulatedFeed
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -25,6 +26,15 @@ fun ageText(t: Long, nowMs: Long): String {
 
 private fun readings(n: Int) = if (n == 1) "1 reading" else "$n readings"
 
+/** The display name of a reading's source ([org.glucorag.shared.CgmReading.from]). */
+fun sourceName(from: String?) = when (from) {
+    "juggluco" -> "Juggluco"
+    "xdrip" -> "xDrip+"
+    SimulatedFeed.FROM -> "Simulated"
+    null -> "No readings received yet"
+    else -> from
+}
+
 /** The Today screen's upload status line. [waiting] readings are still queued. */
 fun syncLine(sync: SyncSummary?, waiting: Int, nowMs: Long, zone: ZoneId = ZoneId.systemDefault()): String {
     val waitingText = if (waiting > 0) " ${readings(waiting)} waiting." else ""
@@ -37,6 +47,6 @@ fun syncLine(sync: SyncSummary?, waiting: Int, nowMs: Long, zone: ZoneId = ZoneI
         }
         SyncState.UNREACHABLE -> "Server unreachable since ${clockText(sync.since, zone)}.$waitingText"
         SyncState.SIGNED_OUT -> "Signed out on the server. Sign in again."
-        SyncState.NEEDS_SETUP -> "Finish setup on the website."
+        SyncState.NEEDS_SETUP -> "Enter your details to start the forecast."
     }
 }

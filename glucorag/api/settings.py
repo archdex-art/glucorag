@@ -50,6 +50,11 @@ class ApiSettings(BaseSettings):
     )
     session_days: int = Field(default=14, gt=0, le=90)
     import_max_days: int = Field(default=30, gt=0, description="CSV import keeps the last N days")
+    public_url: str | None = Field(
+        default=None,
+        description="address phones use to reach this server (pairing QR), e.g. "
+        "http://192.168.1.20:8000; unset = guessed from the request",
+    )
     host: str = "127.0.0.1"
     port: int = 8000
     log_level: str = "INFO"
@@ -59,6 +64,13 @@ class ApiSettings(BaseSettings):
     def _split_keys(cls, v: object) -> object:
         if isinstance(v, str):
             return [k.strip() for k in v.split(",") if k.strip()]
+        return v
+
+    @field_validator("public_url", mode="before")
+    @classmethod
+    def _strip_url(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip().rstrip("/") or None
         return v
 
     def service_config(self) -> ServiceConfig:

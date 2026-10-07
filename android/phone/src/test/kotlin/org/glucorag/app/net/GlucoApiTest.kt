@@ -311,4 +311,48 @@ class GlucoApiTest {
         json("""{"detail":"x"}""", 401)
         assertEquals(ApiResult.Unauthorized, api.signOut())
     }
+
+    @Test
+    fun pairPostsCodeWithoutBearerAndReturnsToken() = runBlocking {
+        token = "old-account"
+        json(
+            """{"token":"tok-p","expires_at":"2027-10-07T12:00:00Z",
+               "account":{"email":"noor@example.com","role":"person","unit":"mmol/L","has_profile":false}}""",
+        )
+        val out = ok(api.pair("ABCDEFGH", "Google Pixel 8"))
+        assertEquals("tok-p", out.token)
+        assertEquals(AccountOut("noor@example.com", "person", "mmol/L", false), out.account)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/auth/pair", req.target)
+        assertEquals("""{"code":"ABCDEFGH","device":"Google Pixel 8"}""", req.text())
+        assertNull(req.headers["Authorization"])
+    }
+
+    @Test
+    fun refusedPairingCodeCarriesTheServersExplanation() = runBlocking {
+        json("""{"detail":"This pairing code is not valid. Make a new one on the website."}""", 401)
+        assertEquals(
+            ApiResult.Http(401, "This pairing code is not valid. Make a new one on the website."),
+            api.pair("ABCDEFGH", "Pixel"),
+        )
+        json("""{"detail":"Too many attempts. Try again in a minute."}""", 429)
+        assertEquals(ApiResult.Http(429, "Too many attempts. Try again in a minute."), api.pair("ABCDEFGH", "Pixel"))
+    }
+
+    @Test
+    fun putProfileSendsAllFieldsWithBearer() = runBlocking {
+        token = "tok-1"
+        json("""{"email":"a@b.c","role":"person","unit":"mmol/L","profile":{"age":34},"readings":{"count":0}}""")
+        val saved = ok(api.putProfile(ProfileIn(age = 34, gender = "F", bmi = 23.4, diabetesType = "T1D", sensitivity = "standard", unit = "mmol/L")))
+        assertEquals(ProfileSaved("mmol/L"), saved)
+        val req = server.takeRequest()
+        assertEquals("PUT", req.method)
+        assertEquals("/me/profile", req.target)
+        assertEquals(
+            """{"age":34,"gender":"F","bmi":23.4,"diabetes_type":"T1D","sensitivity":"standard","unit":"mmol/L"}""",
+            req.text(),
+        )
+        assertEquals("Bearer tok-1", req.headers["Authorization"])
+    }
 }

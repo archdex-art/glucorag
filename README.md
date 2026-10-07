@@ -79,7 +79,7 @@ A person who opens a staff page gets a 403 page.
 
 **Sessions:** the website signs in with an HttpOnly, `SameSite=Strict` session cookie; only a SHA-256 of the session token is stored. Writes made with the cookie must come from the same origin. Failed logins are throttled at 5 per 15 min per email (in process memory, so per server process). Behind TLS, set `GLUCORAG_COOKIE_SECURE=true` if the proxy does not send `X-Forwarded-Proto: https`.
 
-**Phones** sign in once with `POST /auth/token` (`{email, password, device}`, personal accounts only, same throttle as login) and send the returned token as `Authorization: Bearer <token>` for a year. Bearer requests need no `Origin` check; an invalid or revoked token is a 401 even if a cookie is also present (other `Authorization` schemes, e.g. from a Basic-auth proxy, are ignored). `GET /me/devices` lists signed-in phones and `DELETE /me/devices/{id}` signs one out; `POST /auth/logout` with the bearer header ends that phone's session.
+**Phones** sign in once and send the returned token as `Authorization: Bearer <token>` for a year. The easy way is a pairing code: on the website, Settings > Connected devices > **Connect a phone** shows a QR code and an 8-character code (`POST /me/pairing`, browser session of a personal account). The phone scans it (the QR is a `glucorag://pair?server=…&code=…` link carrying the server address) or types the code, and redeems it with `POST /auth/pair` (`{code, device}`). Codes are single use, expire after 10 minutes, are stored only as SHA-256 hashes, and a new code cancels the previous unused one; failed redemptions are throttled at 5 per 15 min per client address. The QR's server address is `GLUCORAG_PUBLIC_URL` when set; otherwise the address the browser used, except that `localhost` is replaced by this computer's LAN address (marked as a guess on the website). Phones can also sign in with `POST /auth/token` (`{email, password, device}`, personal accounts only, same throttle as login). Bearer requests need no `Origin` check; an invalid or revoked token is a 401 even if a cookie is also present (other `Authorization` schemes, e.g. from a Basic-auth proxy, are ignored). `GET /me/devices` lists signed-in phones and `DELETE /me/devices/{id}` signs one out; `POST /auth/logout` with the bearer header ends that phone's session.
 
 **Devices and scripts** use API keys (`X-API-Key`), which are optional: set `GLUCORAG_API_KEYS` only if something should push readings without an account. To fill the ward with a recorded series:
 ```bash
@@ -89,16 +89,17 @@ GLUCORAG_API_KEY=change-me glucorag-replay data/raw/shanghai/Shanghai_T1DM/1001_
 For frontend development: `cd web && npm run dev` (Vite on :5173, API proxied to :8000). See `web/README.md`.
 
 **Endpoints:**
-- Accounts: `POST /auth/register`, `/auth/login`, `/auth/token`, `/auth/logout`, `/auth/password`; `GET /auth/me`
-- Personal (session or device token): `GET /me`, `PUT /me/profile`, `GET /me/status`, `GET /me/history`, `GET /me/alerts?after_id=` (with `after_id`: only newer alerts, oldest first), `POST /me/readings`, `POST /me/readings/batch` (offset-aware times, up to `max_batch`), `POST /me/import?tz=&unit=&dates=` (CSV body), `POST /me/sample`, `GET /me/export`, `DELETE /me/readings`, `DELETE /me`, `GET /me/devices`, `DELETE /me/devices/{id}`
+- Accounts: `POST /auth/register`, `/auth/login`, `/auth/token`, `/auth/pair`, `/auth/logout`, `/auth/password`; `GET /auth/me`
+- Personal (session or device token): `GET /me`, `PUT /me/profile`, `GET /me/status`, `GET /me/history`, `GET /me/alerts?after_id=` (with `after_id`: only newer alerts, oldest first), `POST /me/readings`, `POST /me/readings/batch` (offset-aware times, up to `max_batch`), `POST /me/import?tz=&unit=&dates=` (CSV body), `POST /me/sample`, `GET /me/export`, `DELETE /me/readings`, `DELETE /me`, `GET /me/devices`, `DELETE /me/devices/{id}`, `POST /me/pairing` (browser session only)
 - Staff (clinician session or API key): `POST /patients`, `POST /readings`, `GET /patients/{id}/forecast`, `GET /patients/{id}/history`, `GET /cohort/risk`, `GET /alerts`, `GET /export`, `GET /model`, `GET /stats`
 - `GET /metrics` (Prometheus), `GET /healthz`, `/ui/` (website)
 
-Everything except `/healthz`, `/ui/`, register, login and logout needs a session or an API key. `/me` times carry a UTC offset; staff routes use naive server-local times. All responses carry a strict CSP and other security headers.
+Everything except `/healthz`, `/ui/`, register, login, token, pair and logout needs a session or an API key. `/me` times carry a UTC offset; staff routes use naive server-local times. All responses carry a strict CSP and other security headers.
 
 **Main settings (`GLUCORAG_*`):**
 - `MODEL_PATH`, `DB_PATH`, `SIM_REPORT`, `API_KEYS` (optional, comma-separated)
 - `ALLOW_SIGNUP` (default true), `COOKIE_SECURE` (unset = only over HTTPS), `SESSION_DAYS` (14), `IMPORT_MAX_DAYS` (30: an import keeps the last N days of its file)
+- `PUBLIC_URL` (optional): the address phones use to reach the server, put in pairing QR codes, e.g. `http://192.168.1.20:8000`
 - `CLOCK` (`wall` or `data`)
 - `HYPO_QUANTILE` (default 0.25), `HYPER_QUANTILE` (default 0.75): the ward default; each person's sensitivity setting overrides them for their own alerts
 - `HYPO_MG_DL` (≤ 70), `HYPER_MG_DL` (≥ 180)
@@ -114,8 +115,9 @@ docker compose -f docker/compose.yaml up --build
 A **phone app** receives readings live from Juggluco or xDrip+ and uploads them; a **watch app**
 (Galaxy Watch4 Classic, Wear OS 6) shows your current value, the next hour and alerts as watch-face
 complications, a tile and an app. Run the server on your home network
-(`GLUCORAG_HOST=0.0.0.0 glucorag-serve`, then use the Mac's address from the phone). Build,
-install and set-up steps: `android/README.md`.
+(`GLUCORAG_HOST=0.0.0.0 glucorag-serve`), then on the website open Settings > Connected devices >
+Connect a phone and scan the QR code with the phone app. Build, install and set-up steps:
+`android/README.md`.
 
 ## Results (`shanghai-v1`, ShanghaiDM test split)
 - **RMSE:** 12.04 ± 3.02 mg/dL at 30 min and 21.21 ± 6.01 at 60 min. The paper reports 12.7 ± 3.8 and 21.7 ± 6.9.

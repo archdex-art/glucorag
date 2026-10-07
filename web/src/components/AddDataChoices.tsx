@@ -64,10 +64,10 @@ export function AddDataChoices({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
           <H className="choice-title">Live from your phone</H>
           <p>
             Readings stream from Juggluco or xDrip+ on your Android phone, and your watch shows the forecast. Install the GlucoRAG
-            phone app and sign in with this account.
+            phone app, then scan the code from Settings to sign it in. No typing needed.
           </p>
           <Link className="button button-primary" to="/settings#devices">
-            See connected devices
+            Connect a phone
           </Link>
         </li>
       </ul>

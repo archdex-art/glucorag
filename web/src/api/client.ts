@@ -18,6 +18,7 @@ import type {
   MeInfo,
   MeStatus,
   ModelInfo,
+  PairingCode,
   ProfileInput,
   ReadingInput,
   SampleResult,
@@ -231,6 +232,11 @@ export class ApiClient {
   /** Signs one phone out; 404 when the id is not one of yours. */
   revokeDevice(id: number): Promise<void> {
     return this.send(`/me/devices/${id}`, { method: 'DELETE' });
+  }
+
+  /** A new phone pairing code; the previous unused one stops working. */
+  createPairing(): Promise<PairingCode> {
+    return this.send('/me/pairing', { method: 'POST' });
   }
 
   // ---------- Staff (clinician session) ----------

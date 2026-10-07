@@ -21,6 +21,8 @@ dependencies = [
     "prometheus-client>=0.20.0",
     # IANA zones for interpreting CSV exports in the uploader's local time (slim images lack them).
     "tzdata>=2024.1",
+    # Pairing QR codes drawn as SVG on the server (pure Python, no image libraries).
+    "segno>=1.6.0",
 ]
 
 [project.scripts]

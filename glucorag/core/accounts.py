@@ -1,9 +1,10 @@
-"""Account primitives: password hashing, session tokens and login throttling.
+"""Account primitives: password hashing, session tokens, pairing codes and login throttling.
 
 Passwords use stdlib scrypt (memory-hard) with a per-password random salt; the encoded
 form carries its parameters so they can be raised later without invalidating old hashes.
 Session tokens are random bearer secrets; only their SHA-256 is stored, so a leaked
-database cannot be replayed as live sessions.
+database cannot be replayed as live sessions. Pairing codes are short single-use secrets
+a signed-in browser shows to a phone; they are stored the same way.
 """
 
 import hashlib
@@ -71,6 +72,30 @@ def token_hash(token: str) -> str:
 
 def new_patient_id() -> str:
     return f"p-{secrets.token_hex(5)}"
+
+
+# No 0/O or 1/I: a code read off a screen must not be ambiguous.
+PAIRING_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+PAIRING_LENGTH = 8
+
+
+def new_pairing_code() -> str:
+    """A random code, e.g. ``ABCDEFGH`` (shown as ``ABCD-EFGH``); 40 bits of entropy."""
+    return "".join(secrets.choice(PAIRING_ALPHABET) for _ in range(PAIRING_LENGTH))
+
+
+def format_pairing_code(code: str) -> str:
+    half = PAIRING_LENGTH // 2
+    return f"{code[:half]}-{code[half:]}"
+
+
+def normalize_pairing_code(text: str) -> str | None:
+    """The canonical code for user input (case-insensitive, dashes and spaces ignored);
+    ``None`` when it cannot be a pairing code."""
+    code = "".join(text.split()).replace("-", "").upper()
+    if len(code) != PAIRING_LENGTH or any(ch not in PAIRING_ALPHABET for ch in code):
+        return None
+    return code
 
 
 @dataclass

@@ -19,6 +19,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,10 +31,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.glucorag.app.data.LocalState
 import org.glucorag.app.data.QueueDb
 import org.glucorag.app.data.SyncState
+import org.glucorag.app.source.Simulation
 import org.glucorag.app.sync.SyncWorker
 import org.glucorag.shared.Snapshot
 import org.glucorag.shared.StatusKind
@@ -69,8 +72,9 @@ fun watchLine(connected: Boolean?) = when (connected) {
 }
 
 @Composable
-fun TodayScreen(server: String?, onSettings: () -> Unit, onSignIn: () -> Unit) {
+fun TodayScreen(server: String?, simulated: Boolean, onSettings: () -> Unit, onSignIn: () -> Unit, onEnterDetails: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val local = LocalState.get(context)
     val snapshot by local.snapshot.collectAsState()
     val sync by local.sync.collectAsState()
@@ -88,6 +92,14 @@ fun TodayScreen(server: String?, onSettings: () -> Unit, onSignIn: () -> Unit) {
             Text("GlucoRAG", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             TextButton(onClick = onSettings) { Text("Settings") }
         }
+        if (simulated) {
+            Sheet {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Simulated readings, not from a sensor", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    OutlinedButton(onClick = { scope.launch { Simulation.stop(context) } }) { Text("Stop") }
+                }
+            }
+        }
         Sheet { Answer(snapshot, now) }
         snapshot?.let { s ->
             Sheet {
@@ -104,10 +116,10 @@ fun TodayScreen(server: String?, onSettings: () -> Unit, onSignIn: () -> Unit) {
             Text(syncLine(sync, waiting, now), style = MaterialTheme.typography.bodyMedium)
             Text(watchLine(watch), style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (sync?.state == SyncState.SIGNED_OUT) {
-                    OutlinedButton(onClick = onSignIn) { Text("Sign in again") }
-                } else {
-                    OutlinedButton(onClick = { SyncWorker.enqueue(context) }) { Text("Sync now") }
+                when (sync?.state) {
+                    SyncState.SIGNED_OUT -> OutlinedButton(onClick = onSignIn) { Text("Sign in again") }
+                    SyncState.NEEDS_SETUP -> OutlinedButton(onClick = onEnterDetails) { Text("Enter your details") }
+                    else -> OutlinedButton(onClick = { SyncWorker.enqueue(context) }) { Text("Sync now") }
                 }
                 if (server != null) TextButton(onClick = { openUrl(context, "$server/ui/history") }) { Text("Full history on the website") }
             }
@@ -128,7 +140,7 @@ private fun Answer(snapshot: Snapshot?, now: Long) {
     }
     // The shared sentences speak from the watch; two of them need the phone's own words.
     val sentence = when (status.kind) {
-        StatusKind.OPEN_PHONE -> if (snapshot?.server?.state == "needs_setup") "Finish setup on the website" else "Sign in again to see your forecast"
+        StatusKind.OPEN_PHONE -> if (snapshot?.server?.state == "needs_setup") "Enter your details to see your forecast" else "Sign in again to see your forecast"
         StatusKind.WAITING -> "Waiting for the first upload"
         else -> status.sentence
     }

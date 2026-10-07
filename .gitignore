@@ -21,3 +21,4 @@ build/
 # Dashboard build output (built from web/ by `npm run build`, CI and Docker)
 glucorag/api/static/
 web/node_modules/
+.idea/

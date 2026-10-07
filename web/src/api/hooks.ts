@@ -124,10 +124,12 @@ export function useMeAlerts(limit: number, paused = false, enabled = true) {
 
 export const DEVICES_KEY = [ME_KEY, 'devices'] as const;
 
-export function useDevices() {
+/** `pollMs` refetches on an interval, e.g. while waiting for a phone to pair. */
+export function useDevices(pollMs: number | false = false) {
   const api = useApi();
   return useQuery({
     queryKey: DEVICES_KEY,
     queryFn: ({ signal }) => api.devices(signal),
+    refetchInterval: pollMs,
   });
 }

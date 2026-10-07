@@ -1,5 +1,5 @@
-"""Account routes: register, sign in (browser cookie or device token), sign out, current
-account, change password."""
+"""Account routes: register, sign in (browser cookie, device token or pairing code), sign
+out, current account, change password."""
 
 import re
 from datetime import UTC, datetime, timedelta
@@ -23,6 +23,8 @@ from glucorag.core.accounts import (
     hash_password,
     new_patient_id,
     new_session_token,
+    normalize_pairing_code,
+    token_hash,
     verify_password,
 )
 from glucorag.core.storage import StoredUser, UserGoneError
@@ -54,6 +56,11 @@ class AccountOut(BaseModel):
 
 
 class TokenIn(Credentials):
+    device: str = Field(min_length=1, max_length=64)
+
+
+class PairIn(BaseModel):
+    code: str = Field(max_length=32)
     device: str = Field(min_length=1, max_length=64)
 
 
@@ -162,6 +169,44 @@ def issue_token(
         service.storage.create_session(hashed, user.id, expires, device=body.device)
     except UserGoneError as e:  # deleted while its password was being checked
         raise HTTPException(401, "Email or password is incorrect.") from e
+    return TokenOut(
+        token=token, expires_at=expires,
+        account=account_out(user, service.is_registered(user.patient_id)),
+    )
+
+
+_BAD_PAIRING = "This pairing code is not valid. Make a new one on the website."
+
+
+@router.post("/pair")
+def pair(
+    body: PairIn,
+    request: Request,
+    service: Service,
+    throttle: Annotated[LoginThrottle, Depends(_throttle)],
+) -> TokenOut:
+    """Sign a phone in with a code from ``POST /me/pairing``: the same device token as
+    ``/auth/token``, without typing a password. Failures are throttled per client address."""
+    key = f"pair:{request.client.host if request.client else 'unknown'}"
+    wait = throttle.retry_after(key)
+    if wait > 0:
+        raise HTTPException(
+            429, f"Too many failed attempts. Try again in {int(wait // 60) + 1} min.",
+            {"Retry-After": str(int(wait) + 1)},
+        )
+    code = normalize_pairing_code(body.code)
+    now = datetime.now(UTC)
+    user = None if code is None else service.storage.redeem_pairing_code(token_hash(code), now)
+    if user is None or user.role != "person":
+        throttle.failure(key)
+        raise HTTPException(401, _BAD_PAIRING)
+    throttle.success(key)
+    token, hashed = new_session_token()
+    expires = now + timedelta(days=DEVICE_TOKEN_DAYS)
+    try:
+        service.storage.create_session(hashed, user.id, expires, device=body.device)
+    except UserGoneError as e:  # account deleted after the code was made
+        raise HTTPException(401, _BAD_PAIRING) from e
     return TokenOut(
         token=token, expires_at=expires,
         account=account_out(user, service.is_registered(user.patient_id)),

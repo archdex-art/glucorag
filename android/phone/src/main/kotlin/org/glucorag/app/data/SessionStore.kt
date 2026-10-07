@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -22,6 +23,7 @@ import java.io.IOException
  * newest reading queued for upload, epoch ms. [unit] is the account's glucose unit label as last
  * seen on the server; [notifiedAlerts] holds the `type@t_raised` keys of the most recent alert
  * notifications, oldest first, so an alert the server re-raises with a new id doesn't buzz twice.
+ * [simulated]: the phone feeds itself simulated readings (SimulatedFeed) until turned off.
  */
 data class Session(
     val server: String? = null,
@@ -31,6 +33,7 @@ data class Session(
     val lastQueuedT: Long? = null,
     val unit: String? = null,
     val notifiedAlerts: List<String> = emptyList(),
+    val simulated: Boolean = false,
 )
 
 // One DataStore per file per process: the delegate holds the app's single instance. The file
@@ -62,6 +65,7 @@ class SessionStore(private val store: DataStore<Preferences>) {
             prefs.put(LAST_QUEUED_T, next.lastQueuedT)
             prefs.put(UNIT, next.unit)
             prefs.put(NOTIFIED_ALERTS, next.notifiedAlerts.takeIf { it.isNotEmpty() }?.joinToString("\n"))
+            prefs.put(SIMULATED, next.simulated.takeIf { it })
         }
         return next
     }
@@ -83,6 +87,7 @@ class SessionStore(private val store: DataStore<Preferences>) {
         val LAST_QUEUED_T = longPreferencesKey("last_queued_t")
         val UNIT = stringPreferencesKey("unit")
         val NOTIFIED_ALERTS = stringPreferencesKey("notified_alerts")
+        val SIMULATED = booleanPreferencesKey("simulated")
 
         fun Preferences.toSession() = Session(
             server = this[SERVER],
@@ -92,6 +97,7 @@ class SessionStore(private val store: DataStore<Preferences>) {
             lastQueuedT = this[LAST_QUEUED_T],
             unit = this[UNIT],
             notifiedAlerts = this[NOTIFIED_ALERTS]?.split("\n")?.filter { it.isNotEmpty() } ?: emptyList(),
+            simulated = this[SIMULATED] ?: false,
         )
 
         fun <T> MutablePreferences.put(key: Preferences.Key<T>, value: T?) {

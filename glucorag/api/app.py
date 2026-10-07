@@ -70,6 +70,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         app.state.cookie_secure = cfg.cookie_secure
         app.state.session_days = cfg.session_days
         app.state.import_max_days = cfg.import_max_days
+        app.state.public_url = cfg.public_url
         app.state.model_path = resolve_artifact(cfg.model_path or "")
         app.state.sim_report = cfg.sim_report
         app.state.clock = cfg.clock

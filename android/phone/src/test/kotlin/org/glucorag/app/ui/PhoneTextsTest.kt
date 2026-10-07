@@ -39,7 +39,7 @@ class PhoneTextsTest {
             syncLine(SyncSummary(SyncState.UNREACHABLE, now, t1405, 0), 1, now, zone),
         )
         assertEquals("Signed out on the server. Sign in again.", syncLine(SyncSummary(SyncState.SIGNED_OUT, now, now, 0), 3, now, zone))
-        assertEquals("Finish setup on the website.", syncLine(SyncSummary(SyncState.NEEDS_SETUP, now, now, 0), 0, now, zone))
+        assertEquals("Enter your details to start the forecast.", syncLine(SyncSummary(SyncState.NEEDS_SETUP, now, now, 0), 0, now, zone))
     }
 
     @Test
@@ -48,5 +48,13 @@ class PhoneTextsTest {
             "Uploaded 2 min ago. 1 reading waiting.",
             syncLine(SyncSummary(SyncState.SYNCED, t1405, t1405, 0), 1, t1405 + 2 * min, zone),
         )
+    }
+
+    @Test
+    fun sourceNamesForEachSource() {
+        assertEquals("Juggluco", sourceName("juggluco"))
+        assertEquals("xDrip+", sourceName("xdrip"))
+        assertEquals("Simulated", sourceName("simulated"))
+        assertEquals("No readings received yet", sourceName(null))
     }
 }

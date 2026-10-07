@@ -11,7 +11,7 @@
     <!-- xDrip+ with "Compatible Broadcast" off sends only to holders of this permission. -->
     <uses-permission android:name="com.eveningoutpost.dexdrip.permissions.RECEIVE_BG_ESTIMATE" />
 
-    <!-- To show whether Juggluco or xDrip+ is installed (and as Juggluco documents). -->
+    <!-- To show whether Juggluco or xDrip+ is installed, and to open them. -->
     <queries>
         <package android:name="tk.glucodata" />
         <package android:name="com.eveningoutpost.dexdrip" />
@@ -26,15 +26,30 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
+        <!-- singleTask: a pairing link from the camera or a browser opens the running app (onNewIntent). -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- The website's pairing QR code: glucorag://pair?server=…&code=… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="pair"
+                    android:scheme="glucorag" />
+            </intent-filter>
         </activity>
+        <!-- Google's code scanner module: download it with the app rather than on first scan. -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui" />
         <!-- Explicit broadcasts from Juggluco and xDrip+ (the user enters org.glucorag.app there). -->
         <receiver
             android:name=".source.GlucoseReceiver"

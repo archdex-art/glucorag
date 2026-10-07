@@ -151,11 +151,20 @@ def _utc_iso(t: datetime) -> str:
 
 
 # Schema migrations: ``MIGRATIONS[v]`` upgrades ``user_version`` v to v+1. ``SCHEMA`` keeps
-# the version-0 table definitions; later columns arrive only through these steps.
+# the version-0 table definitions; later tables and columns arrive only through these steps.
 MIGRATIONS: tuple[tuple[str, ...], ...] = (
     (
         "ALTER TABLE sessions ADD COLUMN device TEXT",
         "ALTER TABLE sessions ADD COLUMN last_used_at TEXT",
+    ),
+    (
+        "CREATE TABLE pairing_codes ("
+        " code_hash TEXT PRIMARY KEY,"
+        " user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,"
+        " created_at TEXT NOT NULL,"
+        " expires_at TEXT NOT NULL,"
+        " used_at TEXT)",
+        "CREATE INDEX ix_pairing_codes_user ON pairing_codes(user_id)",
     ),
 )
 
@@ -484,6 +493,7 @@ class Storage:
 
     def delete_user(self, user_id: int) -> None:
         with self.transaction():
+            self._exec("DELETE FROM pairing_codes WHERE user_id=?", (user_id,))
             self._exec("DELETE FROM sessions WHERE user_id=?", (user_id,))
             self._exec("DELETE FROM users WHERE id=?", (user_id,))
 
@@ -565,6 +575,41 @@ class Storage:
         self._exec(
             "DELETE FROM sessions WHERE user_id=? AND token_hash IS NOT ?", (user_id, keep)
         )
+
+    # pairing codes (single use; only a SHA-256 of the code is stored) -------------------
+    def create_pairing_code(
+        self, code_hash: str, user_id: int, now: datetime, expires_at: datetime
+    ) -> None:
+        """Store a new code for ``user_id``. The user's earlier unused codes stop working and
+        expired codes of anyone are purged. Raises ``UserGoneError`` if the account is gone."""
+        with self.transaction():
+            self.purge_pairing_codes(now)
+            self._exec(
+                "DELETE FROM pairing_codes WHERE user_id=? AND used_at IS NULL", (user_id,)
+            )
+            try:
+                self._exec(
+                    "INSERT INTO pairing_codes (code_hash, user_id, created_at, expires_at) "
+                    "VALUES (?,?,?,?)",
+                    (code_hash, user_id, _utc_iso(now), _utc_iso(expires_at)),
+                )
+            except sqlite3.IntegrityError as e:
+                raise UserGoneError(user_id) from e
+
+    def redeem_pairing_code(self, code_hash: str, now: datetime) -> StoredUser | None:
+        """Mark an unused, unexpired code used and return its user; ``None`` otherwise.
+        The check and the mark are one statement, so two redemptions cannot both win."""
+        with self._lock:  # fetchall steps the statement to completion, committing it
+            rows = self._conn.execute(
+                "UPDATE pairing_codes SET used_at=? "
+                "WHERE code_hash=? AND used_at IS NULL AND expires_at > ? RETURNING user_id",
+                (_utc_iso(now), code_hash, _utc_iso(now)),
+            ).fetchall()
+        return self.user_by_id(rows[0]["user_id"]) if rows else None
+
+    def purge_pairing_codes(self, now: datetime) -> None:
+        """Delete expired codes, used or not."""
+        self._exec("DELETE FROM pairing_codes WHERE expires_at <= ?", (_utc_iso(now),))
 
     # patient data removal ---------------------------------------------------------------
     def delete_patient_data(self, patient_id: str, include_profile: bool) -> None:

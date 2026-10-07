@@ -46,4 +46,15 @@ class SessionStoreTest {
         store.clear()
         assertEquals(Session(server = "https://g.example"), store.current())
     }
+
+    @Test
+    fun simulatedRoundTripsAndSignOutTurnsItOff() = runBlocking {
+        store.update { Session("https://g.example", "tok", "a@b.c", simulated = true) }
+        assertEquals(true, store.current().simulated)
+        store.update { it.copy(simulated = false) }
+        assertEquals(false, store.current().simulated)
+        store.update { it.copy(simulated = true) }
+        store.clear()
+        assertEquals(Session(server = "https://g.example"), store.current())
+    }
 }
