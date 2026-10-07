@@ -1,0 +1,156 @@
+/* Tokens: light by default, dark follows prefers-color-scheme. */
+
+:root {
+  color-scheme: light dark;
+
+  --font: 'Atkinson Hyperlegible Next Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Neutrals and shell */
+  --ground: #eef2f6;
+  --paper: #ffffff;
+  --wash: #f5f8fb;
+  --rail: #e1eaf4;
+  --line: #dce3eb;
+  --line-strong: #b6c4d3;
+  --ink: #0e2742;
+  --ink-2: #4a6079;
+  --action: #1d5fa8;
+  /* Text on a filled --action surface. */
+  --on-action: #ffffff;
+
+  /* Percentile blues (AGP ribbons) */
+  --p-outer: #d6e4f4;
+  --p-mid: #afcaea;
+  --p-inner: #5b8fcb;
+  --p-median: #0e2742;
+
+  /* Consensus zones: fill (segments, bars), text (on paper), tint (chart bands) */
+  --zone-very-low-fill: #8e1b1b;
+  --zone-very-low-text: #7a1616;
+  --zone-very-low-tint: #f7e3e3;
+  --zone-low-fill: #d7372a;
+  --zone-low-text: #b3261e;
+  --zone-low-tint: #fceae7;
+  --zone-target-fill: #3c9a55;
+  --zone-target-text: #1e6b35;
+  --zone-target-tint: #e9f5ec;
+  --zone-high-fill: #f0c232;
+  --zone-high-text: #7a5900;
+  --zone-high-tint: #fdf5d7;
+  --zone-very-high-fill: #e8772e;
+  --zone-very-high-text: #9e430e;
+  --zone-very-high-tint: #fceade;
+
+  /* Text on a filled zone chip (Urgent): low fill takes paper, high fill takes ink. */
+  --on-low-fill: #ffffff;
+  --on-high-fill: #0e2742;
+
+  /* Shape, depth, motion */
+  --radius: 4px;
+  --radius-sheet: 8px;
+  --shadow-sheet: 0 1px 2px rgb(14 39 66 / 6%), 0 6px 20px rgb(14 39 66 / 5%);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 180ms;
+
+  /* Type scale (rem) */
+  --fs-caption: 0.75rem;
+  --fs-meta: 0.8125rem;
+  --fs-row: 0.875rem;
+  --fs-body: 1rem;
+  --fs-h2: 1.25rem;
+  --fs-h1: 1.5rem;
+  --fs-readout: 2rem;
+  --fs-now: 2.75rem;
+
+  --rail-width: 232px;
+  --tabbar-height: 56px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0b1625;
+    --paper: #102136;
+    --wash: #15293f;
+    --rail: #081221;
+    --line: #22364d;
+    --line-strong: #34506e;
+    --ink: #e6edf5;
+    --ink-2: #a7b8cb;
+    --action: #7eb0ec;
+    --on-action: #0b1625;
+
+    --p-outer: #1c324c;
+    --p-mid: #284a72;
+    --p-inner: #4f86c8;
+    --p-median: #e6edf5;
+
+    --zone-very-low-fill: #e0605c;
+    --zone-very-low-text: #ff9a94;
+    /* Dark tints sit close to --paper: in dark mode a saturated tint across a whole plot
+       reads as colour blocks and buries the trace. Identity is carried by the -fill. */
+    --zone-very-low-tint: #271d29;
+    --zone-low-fill: #f07a6e;
+    --zone-low-text: #ffa49b;
+    --zone-low-tint: #29202b;
+    --zone-target-fill: #5cc27a;
+    --zone-target-text: #8fdca6;
+    --zone-target-tint: #132a2f;
+    --zone-high-fill: #e8c24a;
+    --zone-high-text: #f2d27a;
+    --zone-high-tint: #252823;
+    --zone-very-high-fill: #f09a5a;
+    --zone-very-high-text: #ffb988;
+    --zone-very-high-tint: #272324;
+
+    --on-low-fill: #0b1625;
+    --on-high-fill: #0b1625;
+
+    --shadow-sheet: 0 1px 2px rgb(0 0 0 / 30%), 0 6px 20px rgb(0 0 0 / 22%);
+  }
+}
+
+/* Browser surfaces */
+
+::selection {
+  background: var(--p-mid);
+  color: var(--ink);
+}
+
+html {
+  scrollbar-color: var(--line-strong) transparent;
+  caret-color: var(--action);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--action);
+  text-decoration: none;
+  text-underline-offset: 0.18em;
+}
+
+a:hover,
+a:focus-visible,
+.prose a {
+  text-decoration: underline;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+  }
+}

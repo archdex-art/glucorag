@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+
+.env
+.venv/
+
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Clinical data is never committed (OhioT1DM is DUA-restricted). Anchored: the source
+# package glucorag/data/ (loaders, bundled CC BY sample) must stay tracked.
+/data/
+# Trained artifacts are distributed via the model registry, not git.
+/models/
+# Local runtime state
+*.sqlite
+*.db
+/logs/
+# Dashboard build output (built from web/ by `npm run build`, CI and Docker)
+glucorag/api/static/
+web/node_modules/

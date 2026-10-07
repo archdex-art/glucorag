@@ -1,0 +1,77 @@
+[project]
+name = "glucorag"
+version = "0.1.0"
+description = "Population-specific, multi-horizon blood-glucose forecasting with EPS-TFT"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "torch>=2.2.0",
+    "scikit-learn>=1.4.0",
+    "openpyxl>=3.1.0",
+    "xlrd>=2.0.1",
+    "optuna>=3.6.0",
+    "scipy>=1.12.0",
+    "xgboost>=2.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "prometheus-client>=0.20.0",
+    # IANA zones for interpreting CSV exports in the uploader's local time (slim images lack them).
+    "tzdata>=2024.1",
+]
+
+[project.scripts]
+glucorag-train = "glucorag.train.cli:main"
+glucorag-admin = "glucorag.admin:main"
+glucorag-tune = "glucorag.train.tune:main"
+glucorag-sim = "glucorag.sim.trial:main"
+glucorag-serve = "glucorag.api.__main__:main"
+glucorag-replay = "glucorag.ingest.adapters:main"
+glucorag-evaluate = "glucorag.evaluate.run:main"
+glucorag-release = "glucorag.release:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+    "pyright>=1.1.300",
+    "httpx>=0.27.0",
+]
+# In-silico trial (M7). simglucose imports pkg_resources (removed in setuptools 81) and gym.
+sim = [
+    "simglucose==0.2.11",
+    "gym==0.26.2",
+    "setuptools<81",
+    "matplotlib>=3.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["glucorag"]
+# The dashboard build is gitignored but must ship in the wheel (Docker installs from source).
+artifacts = ["glucorag/api/static/**", "glucorag/data/sample/*"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["build_*.py"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "N"]
+ignore = []
+
+[tool.pyright]
+include = ["glucorag", "tests"]
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportCallIssue = false
+reportAttributeAccessIssue = false

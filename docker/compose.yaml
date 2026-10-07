@@ -1,0 +1,33 @@
+# Run from the repo root:  docker compose -f docker/compose.yaml up --build
+# App: http://localhost:8000/ui/  (create an account there; clinicians: see README)
+services:
+  glucorag:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: glucorag:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # Optional: keys let devices/scripts stream readings and read staff data.
+      GLUCORAG_API_KEYS: ${GLUCORAG_API_KEYS:-}
+      GLUCORAG_ALLOW_SIGNUP: ${GLUCORAG_ALLOW_SIGNUP:-true}
+      # Serve behind HTTPS in any shared deployment; the session cookie is then Secure.
+      # Registry root: serves the version named in models/CURRENT (see glucorag-release).
+      # Point at a specific version instead, e.g. /models/shanghai-v1, before promotion.
+      GLUCORAG_MODEL_PATH: ${GLUCORAG_MODEL_PATH:-/models/shanghai-v1}
+      GLUCORAG_SIM_REPORT: /reports/sim/report.json
+      GLUCORAG_CLOCK: ${GLUCORAG_CLOCK:-wall}
+    volumes:
+      - ../models:/models:ro
+      - ../reports:/reports:ro
+      - glucorag-data:/var/lib/glucorag
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  glucorag-data:
