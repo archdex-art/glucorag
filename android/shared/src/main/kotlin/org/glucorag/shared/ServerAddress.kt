@@ -1,9 +1,5 @@
 package org.glucorag.shared
 
-import java.net.Inet4Address
-import java.net.Inet6Address
-import java.net.InetAddress
-
 sealed interface ServerUrlCheck {
     /** [base] is `scheme://host[:port]`, no trailing slash or path; IPv6 hosts keep brackets. */
     data class Ok(val base: String) : ServerUrlCheck
@@ -15,14 +11,15 @@ const val REASON_NO_SCHEME = "Start the address with http:// or https://"
 const val REASON_INVALID = "That doesn't look like a server address."
 
 private val SCHEME = Regex("^(https?)://([^/?#]*)", RegexOption.IGNORE_CASE)
-private val IPV4 = Regex("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$")
-private val IPV6_CHARS = Regex("^[0-9a-fA-F:.]+$")
+private val IPV4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
+private val HEX_GROUP = Regex("^[0-9a-fA-F]{1,4}$")
 private val HOSTNAME = Regex("^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$")
-private val TAILSCALE_V6_PREFIX = byteArrayOf(0xfd.toByte(), 0x7a, 0x11, 0x5c, 0xa1.toByte(), 0xe0.toByte())
+private val TAILSCALE_V6_PREFIX = intArrayOf(0xfd, 0x7a, 0x11, 0x5c, 0xa1, 0xe0)
 
 /**
  * Validates a user-entered server address. https is always allowed; plain http only for
- * home-network/Tailscale addresses. Never performs DNS: only IP literals are parsed.
+ * home-network/Tailscale addresses. Never performs DNS or calls a resolver: IP literals are
+ * parsed by hand and hostnames are judged by suffix only.
  */
 fun checkServerUrl(url: String): ServerUrlCheck {
     val match = SCHEME.find(url.trim()) ?: return ServerUrlCheck.Rejected(REASON_NO_SCHEME)
@@ -48,9 +45,10 @@ fun checkServerUrl(url: String): ServerUrlCheck {
     }
 
     val homeOrTailnet = when {
-        hostPart.startsWith("[") -> ipv6Allowed(hostPart.substring(1, hostPart.length - 1))
+        hostPart.startsWith("[") -> parseIpv6(hostPart.substring(1, hostPart.length - 1))
+            ?.let(::ipv6Allowed) ?: return ServerUrlCheck.Rejected(REASON_INVALID)
+        IPV4.matches(hostPart) -> parseIpv4(hostPart)?.let(::ipv4Allowed)
             ?: return ServerUrlCheck.Rejected(REASON_INVALID)
-        IPV4.matches(hostPart) -> ipv4Allowed(hostPart) ?: return ServerUrlCheck.Rejected(REASON_INVALID)
         HOSTNAME.matches(hostPart) -> hostPart.lowercase().let { it.endsWith(".local") || it.endsWith(".ts.net") }
         else -> return ServerUrlCheck.Rejected(REASON_INVALID)
     }
@@ -63,15 +61,17 @@ fun checkServerUrl(url: String): ServerUrlCheck {
 private fun validPort(p: String): Boolean =
     p.length <= 5 && p.all { it.isDigit() } && p.toInt() in 1..65535
 
-/** Null when not a valid dotted-quad literal. */
-private fun ipv4Allowed(host: String): Boolean? {
-    val octets = IPV4.matchEntire(host)!!.groupValues.drop(1).map { it.toInt() }
+/** Four octets of a dotted-quad literal, or null when malformed. */
+private fun parseIpv4(s: String): IntArray? {
+    if (!IPV4.matches(s)) return null
+    val octets = s.split('.').map { it.toInt() }
     if (octets.any { it > 255 }) return null
-    return ipv4BytesAllowed(octets)
+    return octets.toIntArray()
 }
 
-private fun ipv4BytesAllowed(o: List<Int>): Boolean {
-    val (a, b) = o
+private fun ipv4Allowed(o: IntArray): Boolean {
+    val a = o[0]
+    val b = o[1]
     return a == 10 ||
         (a == 172 && b in 16..31) ||
         (a == 192 && b == 168) ||
@@ -80,21 +80,49 @@ private fun ipv4BytesAllowed(o: List<Int>): Boolean {
         (a == 100 && b in 64..127)
 }
 
-/** Null when not a valid IPv6 literal. The character guard guarantees no DNS lookup. */
-private fun ipv6Allowed(literal: String): Boolean? {
-    val address = literal.substringBefore('%') // drop zone id ("%25wlan0" in URLs)
-    if (!address.contains(':') || !IPV6_CHARS.matches(address)) return null
-    val ip = try {
-        InetAddress.getByName(address)
-    } catch (e: Exception) {
-        return null
+/**
+ * The 16 bytes of an IPv6 literal, or null when malformed. At most one `::`; 1–4 hex digits per
+ * group; a trailing dotted quad counts as two groups. Zone ids (`%`) are rejected.
+ */
+private fun parseIpv6(s: String): IntArray? {
+    val gap = s.indexOf("::")
+    val groups: List<Int>
+    if (gap < 0) {
+        groups = parseHexGroups(s, allowIpv4Tail = true) ?: return null
+        if (groups.size != 8) return null
+    } else {
+        val head = parseHexGroups(s.substring(0, gap), allowIpv4Tail = false) ?: return null
+        val tail = parseHexGroups(s.substring(gap + 2), allowIpv4Tail = true) ?: return null
+        if (head.size + tail.size > 7) return null
+        groups = head + List(8 - head.size - tail.size) { 0 } + tail
     }
-    val bytes = ip.address
-    return when (ip) {
-        is Inet4Address -> ipv4BytesAllowed(bytes.map { it.toInt() and 0xff }) // IPv4-mapped
-        is Inet6Address -> ip.isLoopbackAddress ||
-            (bytes[0] == 0xfe.toByte() && (bytes[1].toInt() and 0xc0) == 0x80) ||
-            bytes.copyOfRange(0, 6).contentEquals(TAILSCALE_V6_PREFIX)
-        else -> null
+    return IntArray(16) { i -> if (i % 2 == 0) groups[i / 2] shr 8 else groups[i / 2] and 0xff }
+}
+
+/** 16-bit groups of a `:`-separated run; empty string → no groups. Null when malformed. */
+private fun parseHexGroups(s: String, allowIpv4Tail: Boolean): List<Int>? {
+    if (s.isEmpty()) return emptyList()
+    val parts = s.split(':')
+    val groups = ArrayList<Int>(parts.size + 1)
+    for ((i, part) in parts.withIndex()) {
+        if (HEX_GROUP.matches(part)) {
+            groups += part.toInt(16)
+        } else if (allowIpv4Tail && i == parts.lastIndex) {
+            val o = parseIpv4(part) ?: return null
+            groups += (o[0] shl 8) or o[1]
+            groups += (o[2] shl 8) or o[3]
+        } else {
+            return null
+        }
     }
+    return groups
+}
+
+private fun ipv6Allowed(b: IntArray): Boolean {
+    val ipv4Mapped = (0 until 10).all { b[it] == 0 } && b[10] == 0xff && b[11] == 0xff
+    if (ipv4Mapped) return ipv4Allowed(b.copyOfRange(12, 16))
+    val loopback = (0 until 15).all { b[it] == 0 } && b[15] == 1
+    val linkLocal = b[0] == 0xfe && (b[1] and 0xc0) == 0x80
+    val tailscale = (0 until 6).all { b[it] == TAILSCALE_V6_PREFIX[it] }
+    return loopback || linkLocal || tailscale
 }

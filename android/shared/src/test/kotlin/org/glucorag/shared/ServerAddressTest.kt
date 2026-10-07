@@ -49,6 +49,36 @@ class ServerAddressTest {
     }
 
     @Test
+    fun ipv6ParsedWithoutResolver() {
+        val malformed = ServerUrlCheck.Rejected(REASON_INVALID)
+        assertEquals(malformed, checkServerUrl("http://[1::2::3]"))
+        assertEquals(malformed, checkServerUrl("http://[1:2:3]"))
+        assertEquals(malformed, checkServerUrl("http://[.1:2]"))
+        assertEquals(malformed, checkServerUrl("http://[::1%eth0]"))
+        assertEquals(malformed, checkServerUrl("http://[12345::1]"))
+        assertEquals(malformed, checkServerUrl("http://[1:2:3:4:5:6:7:8:9]"))
+        assertEquals(malformed, checkServerUrl("http://[1:2:3:4:5:6:7::8]"))
+        assertEquals(malformed, checkServerUrl("http://[::ffff:1.2.3]"))
+        assertEquals(ok("http://[::1]"), checkServerUrl("http://[::1]"))
+        assertEquals(ok("http://[fe80::1]"), checkServerUrl("http://[fe80::1]"))
+        assertEquals(ok("http://[febf::1]"), checkServerUrl("http://[febf::1]"))
+        assertEquals(rejected, checkServerUrl("http://[fec0::1]"))
+        assertEquals(ok("http://[fd7a:115c:a1e0::5]"), checkServerUrl("http://[fd7a:115c:a1e0::5]"))
+        assertEquals(ok("http://[0:0:0:0:0:0:0:1]"), checkServerUrl("http://[0:0:0:0:0:0:0:1]"))
+        assertEquals(ok("http://[::ffff:192.168.1.10]"), checkServerUrl("http://[::ffff:192.168.1.10]"))
+        assertEquals(rejected, checkServerUrl("http://[::ffff:8.8.8.8]"))
+        assertEquals(rejected, checkServerUrl("http://[2001:db8::1]"))
+        assertEquals(rejected, checkServerUrl("http://[::]"))
+    }
+
+    @Test
+    fun malformedIpv4() {
+        val malformed = ServerUrlCheck.Rejected(REASON_INVALID)
+        assertEquals(malformed, checkServerUrl("http://256.1.1.1"))
+        assertEquals(malformed, checkServerUrl("https://10.0.0.999"))
+    }
+
+    @Test
     fun mdnsAndTailscaleNames() {
         assertEquals(ok("http://mac.local:8000"), checkServerUrl("http://mac.local:8000"))
         assertEquals(ok("http://mac.tail1234.ts.net"), checkServerUrl("http://mac.tail1234.ts.net/"))
