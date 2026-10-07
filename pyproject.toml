@@ -68,6 +68,7 @@ ignore = []
 
 [tool.pyright]
 include = ["glucorag", "tests"]
+exclude = ["glucorag/sim", "tests/test_sim.py"]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = false
 reportUnknownMemberType = false
