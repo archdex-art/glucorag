@@ -4,6 +4,7 @@ Shared by the API service and the in-silico trial so both run exactly the traini
 preprocessing (regular grid, causal imputation of short gaps, z-normalization, time of day).
 """
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -69,10 +70,20 @@ class ForecastEngine:
         t0 = readings[-1].timestamp
         n_slots = self.meta.lookback_steps + _PAD_SLOTS + self.max_gap_steps
         grid = np.full(n_slots, np.nan)
+        best = np.full(n_slots, np.inf)  # |offset| (s) of each slot's current holder
+        half_step = self.step.total_seconds() / 2
+        step_s = self.step.total_seconds()
+        # Each slot keeps the reading nearest its grid time within half a step; ascending
+        # order with `<=` lets the later reading win an exact tie. On a native grid this
+        # is the plain one-reading-per-slot assignment.
         for r in readings:
-            k = round((t0 - r.timestamp) / self.step)
-            if 0 <= k < n_slots:
-                grid[n_slots - 1 - k] = r.glucose_mg_dl
+            age_s = (t0 - r.timestamp).total_seconds()
+            lo = math.floor(age_s / step_s)
+            for k in (lo, lo + 1):
+                offset = abs(age_s - k * step_s)
+                if 0 <= k < n_slots and offset <= half_step and offset <= best[n_slots - 1 - k]:
+                    best[n_slots - 1 - k] = offset
+                    grid[n_slots - 1 - k] = r.glucose_mg_dl
         filled = causal_linear_extrapolate(
             pd.Series(grid), max_gap_steps=self.max_gap_steps
         ).to_numpy()[-self.meta.lookback_steps :]
