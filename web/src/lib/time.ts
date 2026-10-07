@@ -69,10 +69,15 @@ export function toApiTime(t: WallTime): string {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** `27 Jan`. */
+export function formatDayMonth(t: WallTime): string {
+  const d = new Date(t);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
 /** `27 Jan 2022`. */
 export function formatDay(t: WallTime): string {
-  const d = new Date(t);
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  return `${formatDayMonth(t)} ${new Date(t).getUTCFullYear()}`;
 }
 
 export function formatTime(t: WallTime, seconds = false): string {
@@ -110,9 +115,8 @@ export function timeTicks(start: WallTime, end: WallTime, maxTicks = 9): WallTim
 
 /** Short axis label: time, prefixed with the day when the span covers several days. */
 export function formatAxisTime(t: WallTime, multiDay: boolean): string {
-  const d = new Date(t);
   const hm = formatTime(t);
-  return multiDay ? `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${hm}` : hm;
+  return multiDay ? `${formatDayMonth(t)} ${hm}` : hm;
 }
 
 /** Format an API datetime string for display (naive → as written; zoned → browser local). */

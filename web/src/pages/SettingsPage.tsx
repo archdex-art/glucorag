@@ -1,10 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, LogOut, Trash2 } from 'lucide-react';
-import { useId, useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Download, LogOut, Trash2, Unplug } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, errorMessage } from '../api/errors';
-import { ME_KEY, useMe, useMeStatus } from '../api/hooks';
-import type { MeInfo, MeStatus, ProfileInput, Sensitivity, Unit } from '../api/types';
+import { DEVICES_KEY, ME_KEY, useDevices, useMe, useMeStatus } from '../api/hooks';
+import type { Device, MeInfo, MeStatus, ProfileInput, Sensitivity, Unit } from '../api/types';
 import { useAccount, useApi, useAuth } from '../auth/context';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Field, FieldError, PasswordInput } from '../components/Field';
@@ -13,6 +13,7 @@ import { PageHeader } from '../components/PageHeader';
 import { ProfileForm, type ProfileValues } from '../components/ProfileForm';
 import { ErrorState, Skeleton } from '../components/States';
 import { ICON } from '../components/icon';
+import { describeDevice } from '../lib/devices';
 import { saveBlob } from '../lib/download';
 import { quantileIndex, sortForecast } from '../lib/forecast';
 import { fmtInt, fmtQuantile } from '../lib/format';
@@ -354,6 +355,95 @@ function DataSection({ me }: { me: MeInfo }) {
   );
 }
 
+/** Phones signed in with a device token; the Add-data choices link here as `/settings#devices`. */
+function DevicesSection() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const devices = useDevices();
+  const { hash } = useLocation();
+  const ref = useRef<HTMLElement>(null);
+  const [target, setTarget] = useState<Device | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Relative times are as of the fetch; the list refetches when the window regains focus.
+  const now = devices.dataUpdatedAt;
+
+  useEffect(() => {
+    if (hash === '#devices' && !devices.isPending) ref.current?.scrollIntoView({ block: 'start' });
+  }, [hash, devices.isPending]);
+
+  async function disconnect(device: Device) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.revokeDevice(device.id);
+      await queryClient.invalidateQueries({ queryKey: DEVICES_KEY });
+      setTarget(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section ref={ref} id="devices" className="sheet-section settings-section" aria-labelledby="devices-heading">
+      <div className="settings-head">
+        <h2 id="devices-heading">Connected devices</h2>
+        {devices.data?.length === 0 ? (
+          <p className="muted">No phone connected. Install the GlucoRAG phone app to stream readings from Juggluco or xDrip+.</p>
+        ) : null}
+      </div>
+      {devices.isPending ? <Skeleton label="Loading connected devices" rows={2} /> : null}
+      {devices.isError ? (
+        <ErrorState error={devices.error} title="Connected devices could not be loaded." onRetry={() => void devices.refetch()} />
+      ) : null}
+      {devices.data?.length ? (
+        <ul className="device-list">
+          {devices.data.map((d) => (
+            <li key={d.id} className="device-row">
+              <div className="device-text">
+                <p className="device-name">{d.device}</p>
+                <p className="device-meta num">{describeDevice(d, now)}</p>
+              </div>
+              <button
+                type="button"
+                className="button button-danger-quiet"
+                aria-label={`Disconnect ${d.device}`}
+                onClick={() => {
+                  setError(null);
+                  setTarget(d);
+                }}
+              >
+                <Unplug {...ICON} />
+                Disconnect
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <ConfirmDialog
+        open={target !== null}
+        title={`Disconnect ${target?.device ?? ''}?`}
+        confirmLabel="Disconnect"
+        busyLabel="Disconnecting"
+        busy={busy}
+        onConfirm={() => {
+          if (target) void disconnect(target);
+        }}
+        onClose={() => setTarget(null)}
+      >
+        <p>It stops uploading readings until you sign in on it again.</p>
+        {error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </ConfirmDialog>
+    </section>
+  );
+}
+
 function PasswordForm() {
   const api = useApi();
   const id = useId();
@@ -565,6 +655,7 @@ export function SettingsPage() {
             <DataSection me={sections} />
           </>
         ) : null}
+        {sections || !person ? <DevicesSection /> : null}
         {!person || me.data ? <AccountSection me={me.data ?? null} /> : null}
       </div>
     </>

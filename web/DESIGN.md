@@ -161,9 +161,12 @@ types: TrendingUp (hyper), TrendingDown (hypo), WifiOff (data gap).
   min side by side, with the reading's age under Now.
 - **Today chart.** The forecast chart over the last 3 h plus the next hour, so the forecast takes a
   quarter of the width. With old data it is labelled "Forecast made at …" instead of "Now".
-- **Add-data choices.** Three equal columns divided by hairlines (one column on phones): Import from
-  your sensor, Try with sample data, Enter readings yourself, each with an `--action` icon, a
-  sentence and one button. Used on setup and on an empty Today.
+- **Add-data choices.** Four equal cells in a 2×2 grid divided by hairlines (one column on phones):
+  Import from your sensor, Try with sample data, Enter readings yourself, Live from your phone, each
+  with an `--action` icon, a sentence and one button. Used on setup and on an empty Today.
+- **Connected devices.** A Settings section (`#devices`, both roles) listing each phone as a row
+  between hairlines: the device name in 600, "Connected 6 Oct 2026. Last used 4 min ago." in
+  `--ink-2`, and a quiet danger Disconnect button that opens the confirm dialog.
 - **Drop zone.** A 1.5px dashed `--line-strong` box on `--wash` with a "Choose a file" button;
   dragging turns the border `--action` and the fill `--p-outer`; a chosen file makes the border
   solid and shows its name. Format help is a disclosure below the time zone, unit and date-order

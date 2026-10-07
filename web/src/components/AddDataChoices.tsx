@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { FileUp, PencilLine, Sparkles } from 'lucide-react';
+import { FileUp, PencilLine, Smartphone, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ME_KEY } from '../api/hooks';
@@ -8,7 +8,7 @@ import { useAccount, useApi } from '../auth/context';
 import { rememberSource } from '../lib/source';
 import { ICON } from './icon';
 
-/** The three equal ways to get readings in: import, sample, or type them. */
+/** The four equal ways to get readings in: import, sample, type them, or stream from the phone app. */
 export function AddDataChoices({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
   const api = useApi();
   const account = useAccount();
@@ -57,6 +57,17 @@ export function AddDataChoices({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
           <p>Type a value from your meter or sensor app. Forecasts start once there are 2 hours of readings.</p>
           <Link className="button button-primary" to="/add">
             Add reading
+          </Link>
+        </li>
+        <li className="choice">
+          <Smartphone {...ICON} className="choice-icon" />
+          <H className="choice-title">Live from your phone</H>
+          <p>
+            Readings stream from Juggluco or xDrip+ on your Android phone, and your watch shows the forecast. Install the GlucoRAG
+            phone app and sign in with this account.
+          </p>
+          <Link className="button button-primary" to="/settings#devices">
+            See connected devices
           </Link>
         </li>
       </ul>

@@ -10,7 +10,7 @@ Research prototype. Not a medical device. It must never present itself as a basi
 - **Primary: a person living with diabetes who wears a CGM.**
   - They use it on a phone or laptop, at home or on the go, glancing at it a few times a day.
   - They want three things answered at a glance: where they are now, which way they are heading, and whether they will go low or high in the next hour.
-  - They get data in by exporting from FreeStyle LibreView or Dexcom Clarity, by typing readings, or by trying a bundled sample.
+  - They get data in by exporting from FreeStyle LibreView or Dexcom Clarity, by typing readings, by trying a bundled sample, or live from Juggluco or xDrip+ through the GlucoRAG phone app.
 - **Secondary: clinicians.** Staff accounts monitor every registered person (ward, alerts) and check the model (accuracy against the published paper, release status, in-silico trial) and the service.
 - **Devices and scripts** use API keys to stream readings.
 

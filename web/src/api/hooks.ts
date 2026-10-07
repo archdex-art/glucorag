@@ -121,3 +121,13 @@ export function useMeAlerts(limit: number, paused = false, enabled = true) {
     refetchInterval: paused ? false : PERSON_REFRESH_MS,
   });
 }
+
+export const DEVICES_KEY = [ME_KEY, 'devices'] as const;
+
+export function useDevices() {
+  const api = useApi();
+  return useQuery({
+    queryKey: DEVICES_KEY,
+    queryFn: ({ signal }) => api.devices(signal),
+  });
+}

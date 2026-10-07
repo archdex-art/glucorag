@@ -2193,7 +2193,7 @@ a.button:not(.button-primary) {
 
 .choice-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 1rem 0 0;
   padding: 0;
   list-style: none;
@@ -2209,9 +2209,13 @@ a.button:not(.button-primary) {
   padding: 1.25rem 1.5rem 1.5rem 0;
 }
 
-.choice + .choice {
+.choice:nth-child(even) {
   padding-left: 1.5rem;
   border-left: 1px solid var(--line);
+}
+
+.choice:nth-child(n + 3) {
+  border-top: 1px solid var(--line);
 }
 
 .choice p {
@@ -2707,6 +2711,33 @@ a.button:not(.button-primary) {
   font-size: var(--fs-body);
 }
 
+.device-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.device-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.device-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.device-meta {
+  font-size: var(--fs-row);
+  color: var(--ink-2);
+}
+
 @media (max-width: 1099.98px) {
   .today-top {
     grid-template-columns: minmax(0, 1fr);
@@ -2760,7 +2791,7 @@ a.button:not(.button-primary) {
   .welcome-steps li,
   .welcome-steps li + li,
   .choice,
-  .choice + .choice {
+  .choice:nth-child(even) {
     padding: 1rem 0;
     border-left: 0;
   }

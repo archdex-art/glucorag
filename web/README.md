@@ -32,11 +32,11 @@ reach the personal pages, clinicians the staff pages, and anyone else sees a 403
 | Route | Who | Shows |
 |---|---|---|
 | `/welcome`, `/signup`, `/signin` | Signed out | What it does, the research notice; account forms (the sign-up acknowledgement is required) |
-| `/setup`, `/setup/data` | Person | About you (diabetes type, age, sex, BMI or height and weight, units); then Import, Try sample data or Enter readings |
+| `/setup`, `/setup/data` | Person | About you (diabetes type, age, sex, BMI or height and weight, units); then Import, Try sample data, Enter readings or Live from your phone |
 | `/` | Person | Today: status sentence, current value and trend, 30/60 min forecast, the last 3 h with the next hour's band, latest alerts, last 24 h in ranges |
 | `/history` | Person | 24 h / 3 d / 7 d / 14 d: readings chart, time in ranges, statistics (average, GMI, CV, coverage), alerts |
 | `/add` | Person | Enter a reading, or Import a file (drop zone, time zone, unit, date order, format help, result summary) |
-| `/settings` | Both | Profile, alert sensitivity, units, export, password, delete readings, delete account |
+| `/settings` | Both | Profile, alert sensitivity, units, export, delete readings, connected devices (`#devices`, disconnect a phone), password, delete account |
 | `/ward`, `/patients/:id`, `/alerts`, `/model`, `/system` | Clinician | The ward with range strips, patient detail, alert feed with CSV export, release verdict, service health |
 
 A person without a profile is sent to `/setup`; one without readings sees the add-data choices on

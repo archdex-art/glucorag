@@ -247,6 +247,14 @@ export interface MeInfo {
   model: ModelFacts;
 }
 
+/** A phone signed in with a device token (`GET /me/devices`). */
+export interface Device {
+  id: number;
+  device: string;
+  created_at: ApiDateTime;
+  last_used_at: ApiDateTime | null;
+}
+
 export interface MeStatus {
   status: PatientRisk;
   /** The latest stored forecast, current or not. */

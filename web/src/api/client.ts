@@ -4,6 +4,7 @@ import type {
   AlertQuery,
   Cohort,
   CycleResult,
+  Device,
   ExportFormat,
   ExportKind,
   Forecast,
@@ -220,6 +221,16 @@ export class ApiClient {
 
   deleteAccount(password: string): Promise<void> {
     return this.send('/me', { method: 'DELETE', json: { password } });
+  }
+
+  /** Phones signed in with a device token. */
+  devices(signal?: AbortSignal): Promise<Device[]> {
+    return this.getJson('/me/devices', { signal });
+  }
+
+  /** Signs one phone out; 404 when the id is not one of yours. */
+  revokeDevice(id: number): Promise<void> {
+    return this.send(`/me/devices/${id}`, { method: 'DELETE' });
   }
 
   // ---------- Staff (clinician session) ----------
