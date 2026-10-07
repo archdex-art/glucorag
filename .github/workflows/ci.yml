@@ -15,7 +15,7 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: |
-          uv venv
+          uv venv --clear
           uv pip install --index-strategy unsafe-best-match \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             -e ".[dev,sim]"
@@ -58,6 +58,8 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
       - run: >-
           ./gradlew
           :shared:testDebugUnitTest :phone:testDebugUnitTest :wear:testDebugUnitTest
