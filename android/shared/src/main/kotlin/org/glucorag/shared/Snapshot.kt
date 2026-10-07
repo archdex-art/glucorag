@@ -48,6 +48,12 @@ data class Server(val state: String, val since: Long)
 object SnapshotCodec {
     const val VERSION = 1
 
+    /** Data Layer path of the phone's snapshot DataItem. */
+    const val PATH = "/glucorag/snapshot"
+
+    /** DataMap key holding [encode]d bytes inside that DataItem; phone and watch both use it. */
+    const val DATA_KEY = "snapshot"
+
     private val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false

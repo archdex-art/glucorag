@@ -55,6 +55,7 @@ dependencies {
     implementation(libs.protolayout.material3)
     implementation(libs.tiles)
     implementation(libs.complications.datasource)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.play.services.wearable)
     implementation(libs.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)

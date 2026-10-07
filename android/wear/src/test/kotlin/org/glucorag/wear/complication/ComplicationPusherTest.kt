@@ -3,6 +3,7 @@ package org.glucorag.wear.complication
 import org.glucorag.shared.StatusKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -89,5 +90,57 @@ class ComplicationPusherTest {
         assertTrue(d.tile)
         assertEquals(0L, p.lastPush)
         assertEquals(120_000L, p.lastTile)
+    }
+
+    /** A forecast snapshot seconds after the reading must reach the tile, one window later. */
+    @Test
+    fun throttledTileIsDeferredToTheEndOfItsWindow() {
+        val p = pusher(lastTile = 0L)
+        val d = p.decide(StatusKind.IN_RANGE, 10_000L)
+        assertFalse(d.tile)
+        assertEquals(60_000L, d.retryAt)
+    }
+
+    @Test
+    fun throttledComplicationIsDeferredToTheEndOfItsWindow() {
+        val p = pusher(lastPush = 0L, lastTile = null)
+        val d = p.decide(StatusKind.IN_RANGE, 100_000L)
+        assertFalse(d.complications)
+        assertTrue(d.tile)
+        assertEquals(300_000L, d.retryAt)
+    }
+
+    @Test
+    fun flushPushesOnlyWhatWasHeldBack() {
+        val p = pusher(lastPush = 0L, lastTile = null)
+        p.decide(StatusKind.IN_RANGE, 100_000L) // tile sent, complications held back
+        val early = p.flush(StatusKind.IN_RANGE, 200_000L)
+        assertFalse(early.complications)
+        assertFalse(early.tile)
+        assertEquals(300_000L, early.retryAt)
+
+        val due = p.flush(StatusKind.IN_RANGE, 300_000L)
+        assertTrue(due.complications)
+        assertFalse(due.tile)
+        assertNull(due.retryAt)
+        assertNull(p.flush(StatusKind.IN_RANGE, 900_000L).retryAt)
+    }
+
+    @Test
+    fun nothingHeldBackMeansNoRetry() {
+        val d = pusher(lastPush = null, lastKind = null, lastTile = null).decide(StatusKind.WAITING, 0L)
+        assertTrue(d.complications)
+        assertTrue(d.tile)
+        assertNull(d.retryAt)
+    }
+
+    @Test
+    fun aLaterPushClearsTheHeldBackFlag() {
+        val p = pusher(lastPush = 0L, lastTile = 0L)
+        p.decide(StatusKind.IN_RANGE, 10_000L) // both held back
+        val changed = p.decide(StatusKind.LOW_SOON, 70_000L) // kind change pushes complications; tile window open
+        assertTrue(changed.complications)
+        assertTrue(changed.tile)
+        assertNull(changed.retryAt)
     }
 }
