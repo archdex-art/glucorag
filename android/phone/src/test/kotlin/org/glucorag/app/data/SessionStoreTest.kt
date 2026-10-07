@@ -41,9 +41,9 @@ class SessionStoreTest {
     }
 
     @Test
-    fun clearForgetsEverything() = runBlocking {
+    fun clearKeepsOnlyServer() = runBlocking {
         store.update { Session("https://g.example", "tok", "a@b.c", 42, 7) }
         store.clear()
-        assertEquals(Session(), store.current())
+        assertEquals(Session(server = "https://g.example"), store.current())
     }
 }

@@ -20,6 +20,8 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.glucorag.shared.CgmReading
+import org.glucorag.shared.ServerUrlCheck
+import org.glucorag.shared.checkServerUrl
 import java.io.IOException
 import java.time.DateTimeException
 import java.util.concurrent.TimeUnit
@@ -52,12 +54,15 @@ inline fun <T, R> ApiResult<T>.map(transform: (T) -> R): ApiResult<R> = when (th
 }
 
 /**
- * The GlucoRAG server API for a signed-in phone. [base] is a `checkServerUrl` Ok base
- * (`scheme://host[:port]`); [token] is read per request and sent as `Authorization: Bearer`
- * when present.
+ * The GlucoRAG server API for a signed-in phone. [base] must pass `checkServerUrl` (so the bearer
+ * token never goes to a cleartext public host); a Rejected address throws IllegalArgumentException.
+ * [token] is read per request and sent as `Authorization: Bearer` when present.
  */
 class GlucoApi(base: String, private val client: OkHttpClient, private val token: () -> String?) {
-    private val base: HttpUrl = base.toHttpUrl()
+    private val base: HttpUrl = when (val check = checkServerUrl(base)) {
+        is ServerUrlCheck.Ok -> check.base.toHttpUrl()
+        is ServerUrlCheck.Rejected -> throw IllegalArgumentException(check.reason)
+    }
 
     suspend fun health(): ApiResult<Health> = get("healthz", Health.serializer())
 

@@ -60,9 +60,13 @@ class SessionStore(private val store: DataStore<Preferences>) {
         return next
     }
 
-    /** Forgets everything, server address included. */
+    /** Signs out: forgets every key except the server address. */
     suspend fun clear() {
-        store.edit { it.clear() }
+        store.edit { prefs ->
+            val server = prefs[SERVER]
+            prefs.clear()
+            prefs.put(SERVER, server)
+        }
     }
 
     private companion object {

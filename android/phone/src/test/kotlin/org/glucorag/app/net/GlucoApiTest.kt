@@ -6,12 +6,15 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import okhttp3.OkHttpClient
 import org.glucorag.shared.CgmReading
+import org.glucorag.shared.REASON_NEEDS_HTTPS
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.net.InetAddress
 import java.time.OffsetDateTime
 import java.util.concurrent.TimeUnit
 
@@ -20,10 +23,22 @@ class GlucoApiTest {
     private var token: String? = null
     private lateinit var api: GlucoApi
 
+    // checkServerUrl allows cleartext only to home/Tailscale addresses, so use the IPv4 loopback.
+    private val base get() = "http://127.0.0.1:${server.port}"
+
     @Before
     fun setUp() {
-        server.start()
-        api = GlucoApi(server.url("/").toString(), OkHttpClient(), { token })
+        server.start(InetAddress.getByName("127.0.0.1"), 0)
+        api = GlucoApi(base, OkHttpClient(), { token })
+    }
+
+    @Test
+    fun rejectedServerAddressCannotBuildApi() {
+        val e = assertThrows(IllegalArgumentException::class.java) {
+            GlucoApi("http://example.com", OkHttpClient(), { "tok" })
+        }
+        assertEquals(REASON_NEEDS_HTTPS, e.message)
+        assertThrows(IllegalArgumentException::class.java) { GlucoApi("example.com", OkHttpClient(), { "tok" }) }
     }
 
     @After
@@ -251,7 +266,7 @@ class GlucoApiTest {
     @Test
     fun timeoutMapsToNetwork() = runBlocking {
         val slow = GlucoApi(
-            server.url("/").toString(),
+            base,
             OkHttpClient.Builder().readTimeout(200, TimeUnit.MILLISECONDS).build(),
             { null },
         )
@@ -265,9 +280,9 @@ class GlucoApiTest {
 
     @Test
     fun unreachableServerMapsToNetwork() = runBlocking {
-        val base = server.url("/").toString()
+        val closed = base
         server.close()
-        val r = GlucoApi(base, OkHttpClient(), { null }).health()
+        val r = GlucoApi(closed, OkHttpClient(), { null }).health()
         assertTrue("expected Network, got $r", r is ApiResult.Network)
     }
 
