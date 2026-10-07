@@ -74,16 +74,17 @@ class ForecastEngine:
         half_step = self.step.total_seconds() / 2
         step_s = self.step.total_seconds()
         # Each slot keeps the reading nearest its grid time within half a step; ascending
-        # order with `<=` lets the later reading win an exact tie. On a native grid this
-        # is the plain one-reading-per-slot assignment.
+        # order with `<=` lets the later reading win an exact tie. A reading exactly half a
+        # step between two slots fills only the newer one, so each reading fills at most
+        # one slot. On a native grid this is the plain one-reading-per-slot assignment.
         for r in readings:
             age_s = (t0 - r.timestamp).total_seconds()
             lo = math.floor(age_s / step_s)
-            for k in (lo, lo + 1):
-                offset = abs(age_s - k * step_s)
-                if 0 <= k < n_slots and offset <= half_step and offset <= best[n_slots - 1 - k]:
-                    best[n_slots - 1 - k] = offset
-                    grid[n_slots - 1 - k] = r.glucose_mg_dl
+            newer_off, older_off = age_s - lo * step_s, (lo + 1) * step_s - age_s
+            k, offset = (lo, newer_off) if newer_off <= half_step else (lo + 1, older_off)
+            if 0 <= k < n_slots and offset <= best[n_slots - 1 - k]:
+                best[n_slots - 1 - k] = offset
+                grid[n_slots - 1 - k] = r.glucose_mg_dl
         filled = causal_linear_extrapolate(
             pd.Series(grid), max_gap_steps=self.max_gap_steps
         ).to_numpy()[-self.meta.lookback_steps :]

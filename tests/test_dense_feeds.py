@@ -41,6 +41,18 @@ def test_tie_between_readings_goes_to_the_later_one(engine):
     assert decode_ages(engine, x_enc)[-2:] == [round(interval - d), 0]
 
 
+def test_reading_exactly_half_step_between_slots_fills_only_the_newer_one(engine):
+    interval = engine.meta.interval_min
+    # Slots 1 and 2 have no exact reading; a lone reading sits exactly between them.
+    ages = [0, 1.5 * interval, *(interval * k for k in range(3, 12))]
+    hist = [Reading(T0 - timedelta(minutes=a), 100.0 + a) for a in ages]
+    x_enc, _, _ = engine.build_inputs(hist)
+    mg = engine.glucose_norm.inverse_transform(x_enc[:, 0].astype(np.float64))
+    # Slot 1 (newer) holds it; slot 2 stays empty and is extrapolated from slots 3, 4.
+    expected = [2 * interval, 1.5 * interval, 0]
+    assert (mg[-3:] - 100.0).tolist() == pytest.approx(expected, abs=1e-3)
+
+
 def test_reading_beyond_half_step_leaves_slot_for_imputation(engine):
     interval = engine.meta.interval_min
     # Slot 3 has only a reading 0.6 step away -> NaN -> causally extrapolated (linear ages).

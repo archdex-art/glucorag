@@ -50,5 +50,5 @@ def is_warming_up(
         return True
     window_start = t0 - timedelta(minutes=lookback_min - interval_min)
     # Half a step of tolerance: the engine snaps readings to the nearest grid slot (a reading
-    # exactly half a step late rounds half-to-even, i.e. away from the first slot).
+    # exactly half a step late belongs to the newer slot, i.e. not to the first slot).
     return first_seen >= window_start + timedelta(minutes=interval_min / 2)
