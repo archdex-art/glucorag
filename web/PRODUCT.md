@@ -8,7 +8,7 @@ Research prototype. Not a medical device. It must never present itself as a basi
 
 ## Who uses it, and where
 - **Primary: a person living with diabetes who wears a CGM.**
-  - They use it on a phone or laptop, at home or on the go, glancing at it a few times a day.
+  - They use it on a phone or laptop, at home or on the go, glancing at it a few times a day, and on a Wear OS watch (watch-face complications, a tile and an app) fed by the GlucoRAG phone app.
   - They want three things answered at a glance: where they are now, which way they are heading, and whether they will go low or high in the next hour.
   - They get data in by exporting from FreeStyle LibreView or Dexcom Clarity, by typing readings, by trying a bundled sample, or live from Juggluco or xDrip+ through the GlucoRAG phone app.
 - **Secondary: clinicians.** Staff accounts monitor every registered person (ward, alerts) and check the model (accuracy against the published paper, release status, in-silico trial) and the service.
@@ -56,3 +56,4 @@ Research prototype. Not a medical device. It must never present itself as a basi
 - **Sessions:** an HttpOnly SameSite=Strict cookie. No token is ever stored in JavaScript-readable storage.
 - **Accessibility:** WCAG 2.1 AA.
 - **Units:** mg/dL and mmol/L are both first-class.
+- **Phone and watch:** the watch shows only what the phone sends; every watch surface shows the reading's age or time, values grey after 15 min, and a forecast disappears an hour after it was made. Watch alerts are the phone's notifications, mirrored; they never replace the CGM app's alarms.

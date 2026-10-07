@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 — 2026-10-07
+- **Wear OS watch app and Android phone app** (`android/`). Design: `docs/superpowers/specs/2026-10-06-glucorag-wear-design.md`; set-up: `android/README.md`.
+  - The phone receives readings live from Juggluco (`glucodata.Minute`) or xDrip+ (`BgEstimate`), uploads about one every 5 minutes, queues them while the server is out of reach, posts alerts for predicted lows and highs (medium or high severity, once each), and sends the watch a snapshot.
+  - The watch (Wear OS 3+, tested on Wear OS 6 at the Galaxy Watch4 Classic's 450 and 396 px) shows "Glucose now" and "Next hour" complications, a tile and an app. Ages and low/high countdowns are counted by the watch face itself, so they stay right between updates.
+  - Phone screens: Connect, Where your readings come from, Keep readings flowing, Today, Settings.
+- **Server:**
+  - Device sign-in: `POST /auth/token` returns a one-year bearer token for a phone; `GET /me/devices` and `DELETE /me/devices/{id}` list and disconnect phones; `POST /auth/logout` with the bearer token signs a phone out.
+  - `POST /me/readings/batch` uploads many readings at once (offset-aware times) through the backfill; `GET /me/alerts?after_id=` returns only newer alerts.
+  - Database schema versions (`PRAGMA user_version`), applied on start.
+- **Website:** Settings gains Connected devices (with Disconnect); Add data gains "Live from your phone".
+- **Fixed:**
+  - With readings every 1–5 minutes, the forecast used readings up to 5 minutes away from each 15-minute slot; each slot now takes the reading nearest its time (15-minute data is unchanged).
+  - With readings every 1–5 minutes, the trend arrow was missing; it now compares with the reading nearest one interval earlier.
+  - The sample CSV file was left open after loading sample data.
+
 ## 0.4.0 — 2026-10-06
 - **Personal app.** People can now sign up, add their own readings and see their next hour forecast. Spec: `docs/superpowers/specs/2026-10-05-glucorag-personal-app-design.md`.
   - Pages: welcome, sign-up (research acknowledgement required), sign-in, two-step setup (about you; add your data), Today, History, Add data, Settings.

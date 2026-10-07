@@ -110,6 +110,13 @@ docker compose -f docker/compose.yaml up --build
 # then open http://localhost:8000/ui/ ; GLUCORAG_ALLOW_SIGNUP=false closes self-signup
 ```
 
+## Phone and watch (Wear OS)
+A **phone app** receives readings live from Juggluco or xDrip+ and uploads them; a **watch app**
+(Galaxy Watch4 Classic, Wear OS 6) shows your current value, the next hour and alerts as watch-face
+complications, a tile and an app. Run the server on your home network
+(`GLUCORAG_HOST=0.0.0.0 glucorag-serve`, then use the Mac's address from the phone). Build,
+install and set-up steps: `android/README.md`.
+
 ## Results (`shanghai-v1`, ShanghaiDM test split)
 - **RMSE:** 12.04 ± 3.02 mg/dL at 30 min and 21.21 ± 6.01 at 60 min. The paper reports 12.7 ± 3.8 and 21.7 ± 6.9.
 - **Significance:** the gain over the next-best baseline (LSTM) is not statistically significant.
