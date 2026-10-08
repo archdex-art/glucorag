@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from glucorag.api.deps import Service, require_staff
+from glucorag.evaluate.live import HORIZONS, MIN_COUNT, AccuracyReport
 
 router = APIRouter(dependencies=[Depends(require_staff)])
 
@@ -122,6 +123,66 @@ def model_info(request: Request, service: Service) -> ModelInfo:
         cross_individual_cv=meta.metrics.get("cross_individual_cv"),
         in_silico=_in_silico(request.app.state.sim_report, meta.version),
         release=_release_status(artifact, meta.version),
+    )
+
+
+# Live 7-day RMSE more than this many times the evaluation's test RMSE raises a warning.
+DRIFT_RATIO = 1.25
+
+
+class AccuracyReference(BaseModel):
+    horizon_min: int
+    rmse_mg_dl: float
+
+
+class AccuracyWarning(BaseModel):
+    horizon_min: int
+    rmse_7d_mg_dl: float
+    reference_rmse_mg_dl: float
+    ratio: float
+
+
+class ModelAccuracy(AccuracyReport):
+    model_version: str
+    reference: list[AccuracyReference]
+    warning_ratio: float
+    warnings: list[AccuracyWarning]
+
+
+def _reference_rmse(test: dict[str, Any] | None) -> list[AccuracyReference]:
+    """Mean test RMSE per horizon from the evaluation report stored with the model."""
+    summary = (test or {}).get("summary", {})
+    out = []
+    for h in HORIZONS:
+        value = summary.get(str(h), {}).get("RMSE", {}).get("mean")
+        if isinstance(value, int | float):
+            out.append(AccuracyReference(horizon_min=h, rmse_mg_dl=round(float(value), 2)))
+    return out
+
+
+@router.get("/model/accuracy")
+def model_accuracy(service: Service) -> ModelAccuracy:
+    """Realised forecast error (cohort, per model version, per patient, daily) and drift
+    warnings: the served version's 7-day RMSE above ``DRIFT_RATIO`` x its test RMSE."""
+    meta = service.engine.meta
+    report = service.accuracy()
+    reference = _reference_rmse(meta.metrics.get("test"))
+    current = next((v for v in report.versions if v.model_version == meta.version), None)
+    live_7d = {h.horizon_min: h for h in current.last_7_days} if current else {}
+    warnings = []
+    for ref in reference:
+        live = live_7d.get(ref.horizon_min)
+        if live is None or live.count < MIN_COUNT or live.rmse_mg_dl is None:
+            continue
+        ratio = live.rmse_mg_dl / ref.rmse_mg_dl
+        if ratio > DRIFT_RATIO:
+            warnings.append(AccuracyWarning(
+                horizon_min=ref.horizon_min, rmse_7d_mg_dl=live.rmse_mg_dl,
+                reference_rmse_mg_dl=ref.rmse_mg_dl, ratio=round(ratio, 3),
+            ))
+    return ModelAccuracy(
+        **report.model_dump(), model_version=meta.version, reference=reference,
+        warning_ratio=DRIFT_RATIO, warnings=warnings,
     )
 
 

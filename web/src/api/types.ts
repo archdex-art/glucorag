@@ -349,3 +349,72 @@ export interface SampleResult {
   first: ApiDateTime;
   last: ApiDateTime;
 }
+
+/** `GET /me/accuracy`: how close the person's own forecasts came over the last days. */
+export interface MeAccuracy {
+  days: number;
+  horizon_min: number;
+  /** Forecasts matched with a later reading. */
+  count: number;
+  min_count: number;
+  /** Null while `count < min_count`. */
+  median_abs_error_mg_dl: number | null;
+}
+
+// ---------- Live accuracy (staff, `GET /model/accuracy`) ----------
+
+/** Forecasts at one horizon matched with the reading that followed. Errors are null when count is 0. */
+export interface HorizonAccuracy {
+  horizon_min: number;
+  count: number;
+  rmse_mg_dl: number | null;
+  mae_mg_dl: number | null;
+  median_abs_error_mg_dl: number | null;
+  /** Fraction (0–1) of readings inside the q0.25–q0.75 band. */
+  coverage_50: number | null;
+  /** Fraction (0–1) of readings inside the q0.10–q0.90 band. */
+  coverage_80: number | null;
+}
+
+export interface AccuracyWindows {
+  last_7_days: HorizonAccuracy[];
+  last_30_days: HorizonAccuracy[];
+}
+
+/** The served version's 7-day RMSE above `reference × warning_ratio` (only with enough matched forecasts). */
+export interface AccuracyWarning {
+  horizon_min: number;
+  rmse_7d_mg_dl: number;
+  reference_rmse_mg_dl: number;
+  ratio: number;
+}
+
+export interface DailyAccuracy {
+  /** `YYYY-MM-DD`, server-local. */
+  date: string;
+  horizons: HorizonAccuracy[];
+  alerts: { hypo: number; hyper: number; data_gap: number };
+}
+
+export interface ModelAccuracy {
+  as_of: ApiDateTime;
+  /** The version currently served. */
+  model_version: string;
+  /** Test RMSE from the evaluation report; may be empty. */
+  reference: { horizon_min: number; rmse_mg_dl: number }[];
+  warning_ratio: number;
+  warnings: AccuracyWarning[];
+  /** All versions, all patients. */
+  cohort: AccuracyWindows;
+  versions: ({ model_version: string } & AccuracyWindows)[];
+  patients: ({ patient_id: string } & AccuracyWindows)[];
+  /** The last 30 days, oldest first, every day present. */
+  daily: DailyAccuracy[];
+}
+
+/** `GET /downloads` (public): app files this server offers, else the project's releases page. */
+export interface Downloads {
+  phone_apk: string | null;
+  watch_apk: string | null;
+  releases_url: string;
+}

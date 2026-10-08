@@ -132,7 +132,7 @@
  "forecast": null,
  "risk": null,
  "server": {
-  "state": "unreachable",
+  "state": "needs_setup",
   "since": 1791385796816
  },
  "written": 1791385796816

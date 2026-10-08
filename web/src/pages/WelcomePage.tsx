@@ -13,7 +13,7 @@ function FanIllustration() {
       className="fan-art"
       viewBox="0 0 480 260"
       role="img"
-      aria-label="Example: a line of readings up to now, then a shaded forecast band that widens over the next hour."
+      aria-label="Example: a line of readings up to now, then a shaded forecast range that widens over the next hour."
       preserveAspectRatio="none"
     >
       <rect className="art-very-high" x="0" y="0" width="480" height="50" />
@@ -57,8 +57,8 @@ export function WelcomePage() {
           <div className="welcome-copy">
             <h1 id="welcome-title">Where will your glucose be in an hour?</h1>
             <p className="welcome-lede">
-              GlucoRAG reads the last two hours of your CGM readings and forecasts the next hour as a band, drawn the way an
-              AGP report draws it. If the band reaches a low or a high, it tells you when, and by how much.
+              GlucoRAG reads the last two hours of your CGM readings and forecasts the next hour as a shaded range, drawn the way
+              an AGP report draws it. If a low or a high looks likely, it tells you when, and how low or high you could go.
             </p>
             <div className="welcome-actions">
               <Link className="button button-primary button-large" to="/signup">
@@ -88,7 +88,10 @@ export function WelcomePage() {
             </li>
             <li>
               <h3>Add your readings</h3>
-              <p>Import a FreeStyle LibreView or Dexcom Clarity export, type a reading, or try a 48-hour sample.</p>
+              <p>
+                Stream them live from the GlucoRAG phone app, import a FreeStyle LibreView or Dexcom Clarity export, type a reading,
+                or try a 48-hour sample.
+              </p>
             </li>
             <li>
               <h3>See your next hour</h3>

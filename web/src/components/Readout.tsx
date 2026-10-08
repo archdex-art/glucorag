@@ -98,7 +98,7 @@ export function Readout({
       {bandName ? (
         <p className="caption">
           {audience === 'person'
-            ? 'Values are the middle of the forecast; ranges run between the band edges your alerts use.'
+            ? 'Values are the most likely level; the range under each is where you will probably be.'
             : `Values are the median forecast; ranges are the ${bandName} band the alerts use.`}
         </p>
       ) : null}

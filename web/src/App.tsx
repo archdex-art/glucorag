@@ -11,6 +11,7 @@ import { decide, type Area } from './lib/access';
 import { AddDataPage } from './pages/AddDataPage';
 import { AlertsPage } from './pages/AlertsPage';
 import { ForbiddenPage } from './pages/ForbiddenPage';
+import { PhoneHelpPage, WatchHelpPage } from './pages/HelpPages';
 import { HistoryPage } from './pages/HistoryPage';
 import { ModelPage } from './pages/ModelPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -70,6 +71,9 @@ export function App() {
       <BrowserRouter basename="/ui" future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AuthProvider>
           <Routes>
+            {/* Install help is open to everyone: set-up, Settings and signed-out visitors link here. */}
+            <Route path="help/phone" element={<PhoneHelpPage />} />
+            <Route path="help/watch" element={<WatchHelpPage />} />
             <Route element={<Gate area="public" />}>
               <Route path="welcome" element={<WelcomePage />} />
               <Route path="signup" element={<SignUpPage />} />

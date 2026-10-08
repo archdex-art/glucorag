@@ -11,8 +11,11 @@ import androidx.wear.watchface.complications.data.TimeDifferenceComplicationText
 import androidx.wear.watchface.complications.data.TimeDifferenceStyle
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
+import org.glucorag.shared.GlucoseUnit
+import org.glucorag.shared.Risk
 import org.glucorag.shared.Snapshot
 import org.glucorag.shared.StatusKind
+import org.glucorag.shared.riskCrossing
 import org.glucorag.shared.statusOf
 import org.glucorag.wear.data.SnapshotStore
 import java.time.Instant
@@ -30,7 +33,7 @@ class NextHourComplicationService : SuspendingComplicationDataSourceService() {
 }
 
 /**
- * When a low or high is predicted ahead, the time it is predicted for: the face then counts the
+ * When the forecast heads low or high, the time it first crosses 70 / 180: the face then counts the
  * minutes down itself, so they stay right between pushes (at most one per 5 min). Null otherwise.
  */
 internal fun countdownTarget(s: Snapshot?, nowMs: Long): Long? {
@@ -45,18 +48,23 @@ private fun countdown(at: Long, template: String? = null): ComplicationText =
         .apply { template?.let { setText(it) } }
         .build()
 
+/** The long text's live countdown: "Below 70 in ^1" / "Above 180 in ^1" ("^1" becomes "14m"). */
+internal fun countdownTemplate(risk: Risk, unit: GlucoseUnit): String =
+    "${riskCrossing(risk, unit).replaceFirstChar(Char::uppercase)} in ^1"
+
 internal fun nextHourData(type: ComplicationType, s: Snapshot?, nowMs: Long, tap: PendingIntent?): ComplicationData? {
     val status = statusOf(s, nowMs)
     val sentence = plain(status.sentence)
     val at = countdownTarget(s, nowMs)
-    val word = if (status.kind == StatusKind.LOW_SOON) "Low" else "High"
     return when (type) {
         ComplicationType.SHORT_TEXT -> ShortTextComplicationData.Builder(at?.let { countdown(it) } ?: plain(status.shortText), sentence)
             .setTitle(plain(status.shortTitle))
             .setTapAction(tap)
             .build()
-        // "^1" is replaced by the live countdown ("Low predicted in 14m").
-        ComplicationType.LONG_TEXT -> LongTextComplicationData.Builder(at?.let { countdown(it, "$word predicted in ^1") } ?: sentence, sentence)
+        ComplicationType.LONG_TEXT -> LongTextComplicationData.Builder(
+            at?.let { t -> s?.risk?.let { countdown(t, countdownTemplate(it, s.unit)) } } ?: sentence,
+            sentence,
+        )
             .setTapAction(tap)
             .build()
         else -> null

@@ -57,12 +57,12 @@ export function SetupProfilePage() {
   );
 }
 
-/** Set-up 2: three equal ways to get readings in. */
+/** Set-up 2: the phone app first, then the other ways to get readings in. */
 export function SetupDataPage() {
   return (
     <AuthFrame wide aside={<SignOutLink />}>
       <h1>Add your data</h1>
-      <p className="auth-lede">Step 2 of 2. Choose how to get your first readings in. You can use the others later.</p>
+      <p className="auth-lede">Step 2 of 2. Get your first readings in. You can add the other ways later.</p>
       <AddDataChoices />
       <p className="setup-skip">
         <Link to="/">Skip for now</Link>

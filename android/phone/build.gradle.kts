@@ -15,8 +15,20 @@ android {
         applicationId = "org.glucorag.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
+        // ONNX Runtime ships ~30 MB of native code per ABI. Phones (and the Apple-silicon
+        // emulator) are ARM; x86 emulator images aren't supported.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    // Compress native libraries in the APK (extracted on install): the download is far smaller.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
     signingConfigs {
@@ -67,7 +79,17 @@ dependencies {
     implementation(libs.play.services.wearable)
     // Google's code scanner: Play services shows the camera, so the app needs no camera permission.
     implementation(libs.play.services.code.scanner)
+    // Runs the forecast model (assets/model/model.onnx) on the phone.
+    implementation(libs.onnxruntime.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver3)
+    testImplementation(libs.onnxruntime.jvm)
+}
+
+// JVM unit tests can't load the Android natives: they run the same API from the desktop build.
+configurations.configureEach {
+    if (name.endsWith("UnitTestRuntimeClasspath")) {
+        exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android")
+    }
 }

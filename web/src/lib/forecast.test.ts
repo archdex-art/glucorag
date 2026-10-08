@@ -3,6 +3,7 @@ import type { Prediction, StoredReading } from '../api/types';
 import {
   bandLevels,
   buildFan,
+  chanceLabel,
   crossing,
   crossingMatrix,
   mergeChartRows,
@@ -127,5 +128,20 @@ describe('reading series', () => {
     expect(rows).toHaveLength(2 + 4);
     expect(rows[1]).toMatchObject({ t: parseApiTime('2021-08-06T12:58:00'), glucose: 118, median: 118 });
     expect(rows.map((x) => x.t)).toEqual([...rows.map((x) => x.t)].sort((a, b) => a - b));
+  });
+});
+
+describe('chanceLabel', () => {
+  it('names forecast levels without quantile names', () => {
+    expect(Q.map(chanceLabel)).toEqual([
+      '1 in 50 chance below',
+      '1 in 10 chance below',
+      '1 in 4 chance below',
+      'Most likely',
+      '1 in 4 chance above',
+      '1 in 10 chance above',
+      '1 in 50 chance above',
+    ]);
+    expect(chanceLabel(0.3)).toBe('30% chance below');
   });
 });

@@ -87,7 +87,8 @@ export function ProfileForm({ initial, unit: initialUnit, withUnits, submitLabel
   const [type, setType] = useState<DiabetesType | null>(initial?.diabetes_type ?? null);
   const [age, setAge] = useState(initial ? String(initial.age) : '');
   const [sex, setSex] = useState<Sex | null>(initial?.gender ?? null);
-  const [mode, setMode] = useState<BmiMode>('bmi');
+  // New profiles work BMI out from height and weight; a saved BMI stays editable as a number.
+  const [mode, setMode] = useState<BmiMode>(initial ? 'bmi' : 'measure');
   const [bmiText, setBmiText] = useState(initial ? String(initial.bmi) : '');
   const [system, setSystem] = useState<System>(() =>
     defaultMeasureSystem(typeof navigator === 'undefined' ? undefined : navigator.language),
@@ -191,12 +192,12 @@ export function ProfileForm({ initial, unit: initialUnit, withUnits, submitLabel
         <legend>Body-mass index (BMI)</legend>
         <div className="options">
           <label className="option">
-            <input type="radio" name="bmi-mode" checked={mode === 'bmi'} onChange={() => setMode('bmi')} />
-            <span>I know my BMI</span>
-          </label>
-          <label className="option">
             <input type="radio" name="bmi-mode" checked={mode === 'measure'} onChange={() => setMode('measure')} />
             <span>Work it out from height and weight</span>
+          </label>
+          <label className="option">
+            <input type="radio" name="bmi-mode" checked={mode === 'bmi'} onChange={() => setMode('bmi')} />
+            <span>I know my BMI</span>
           </label>
         </div>
         {mode === 'bmi' ? (

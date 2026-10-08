@@ -14,6 +14,9 @@ const API_PATHS = [
   '/model',
   '/stats',
   '/metrics',
+  // `/downloads` lists the app files; `/download/*.apk` serves them.
+  '/downloads',
+  '/download/',
 ];
 const BACKEND = process.env.GLUCORAG_BACKEND ?? 'http://127.0.0.1:8000';
 

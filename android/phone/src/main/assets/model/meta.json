@@ -1,0 +1,60 @@
+{
+  "version": "shanghai-v1",
+  "interval_min": 15,
+  "lookback_steps": 8,
+  "horizon_steps": 4,
+  "max_gap_min": 60,
+  "pad_slots": 2,
+  "quantiles": [
+    0.02,
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    0.9,
+    0.98
+  ],
+  "glucose_norm": {
+    "mu": 147.07610957906238,
+    "sigma": 56.52338533003538
+  },
+  "sensor_range_mg_dl": [
+    40.0,
+    400.0
+  ],
+  "static_encoder": {
+    "features": [
+      "gender",
+      "age",
+      "bmi",
+      "diabetes_type"
+    ],
+    "categorical": {
+      "gender": {
+        "F": 0.0,
+        "M": 1.0
+      },
+      "diabetes_type": {
+        "T1D": 0.0,
+        "T2D": 1.0
+      }
+    },
+    "continuous": {
+      "age": {
+        "mu": 60.136,
+        "sigma": 13.492720407686509
+      },
+      "bmi": {
+        "mu": 23.72200959380146,
+        "sigma": 3.4541510715226798
+      }
+    }
+  },
+  "inputs": [
+    "static",
+    "x_enc",
+    "x_dec"
+  ],
+  "output": "quantiles",
+  "source_weights_sha256": "2190515a09864cd4a83d6e8a6d5f2b08812e5f72151831de4f6b2ad30830b9e2"
+}

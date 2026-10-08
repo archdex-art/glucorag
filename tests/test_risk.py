@@ -4,7 +4,7 @@ import pytest
 
 from glucorag.core.schemas import Prediction
 from glucorag.notify.alerts import AlertDeduplicator
-from glucorag.risk.detectors import AlertPolicy, RiskConfig, assess
+from glucorag.risk.detectors import AlertPolicy, RiskConfig, alerting, assess
 from glucorag.risk.gap_guard import is_warming_up, stale_patients
 
 QS = [0.02, 0.10, 0.25, 0.50, 0.75, 0.90, 0.98]
@@ -85,6 +85,51 @@ def test_hyper_severity_uses_level2_250():
     (flag,) = assess(pred, RiskConfig())
     assert (flag.type, flag.horizon_min, flag.severity) == ("hyper", 15, "high")
     assert flag.extreme_mg_dl == 270
+
+
+@pytest.mark.parametrize(
+    ("q75", "latest", "alerts"),
+    [
+        (189.0, 150.0, False),  # at risk (>= 180) but under the 10 mg/dL alert margin
+        (189.99, 150.0, False),
+        (190.0, 150.0, True),  # margin is inclusive
+        (230.0, 179.9, True),
+        (230.0, 180.0, False),  # already high: the status says so, no alert
+        (230.0, 240.0, False),
+    ],
+)
+def test_hyper_alert_needs_margin_and_not_already_high(q75, latest, alerts):
+    flags = assess(_flat(100.0, q75), RiskConfig())
+    assert [f.type for f in flags] == ["hyper"]  # the status still flags the risk
+    assert bool(alerting(flags, latest, RiskConfig())) is alerts
+
+
+def test_hyper_alert_margin_counts_at_any_horizon():
+    # Only the 60-min upper value reaches 190; the first crossing (180) is earlier.
+    pred = _pred([_band(100.0, v) for v in [175.0, 180.0, 185.0, 190.0]])
+    flags = alerting(assess(pred, RiskConfig()), 120.0, RiskConfig())
+    assert [(f.type, f.horizon_min) for f in flags] == [("hyper", 30)]
+
+
+@pytest.mark.parametrize(
+    ("q25", "latest", "alerts"),
+    [
+        (70.0, 100.0, True),  # hypo keeps no margin: exactly 70 alerts
+        (69.0, 70.1, True),
+        (60.0, 70.0, False),  # already low
+        (50.0, 55.0, False),
+    ],
+)
+def test_hypo_alert_has_no_margin_and_not_already_low(q25, latest, alerts):
+    flags = assess(_flat(q25, 150.0), RiskConfig())
+    assert [f.type for f in flags] == ["hypo"]
+    assert bool(alerting(flags, latest, RiskConfig())) is alerts
+
+
+def test_alert_gate_is_per_direction():
+    # A wide band flags both; already high suppresses only the hyper alert.
+    flags = assess(_flat(70.0, 200.0), RiskConfig())
+    assert [f.type for f in alerting(flags, 185.0, RiskConfig())] == ["hypo"]
 
 
 def test_dedup_suppresses_while_active_and_within_cooldown():

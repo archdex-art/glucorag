@@ -59,14 +59,14 @@ GLUCORAG_MODEL_PATH=models/shanghai-v1 GLUCORAG_SIM_REPORT=reports/sim/report.js
 ```
 Open **http://127.0.0.1:8000/ui/** and choose **Create account**. Each person gets their own forecast:
 1. **Sign up** with an email and a password of at least 10 characters, and confirm you understand it is a research prototype.
-2. **About you:** diabetes type, age, sex and BMI (or height and weight). These are the model's static inputs. Choose mg/dL or mmol/L.
-3. **Add your data** in any of three ways:
+2. **About you:** diabetes type, age, sex and BMI (worked out from height and weight by default, or typed). These are the model's static inputs. Choose mg/dL or mmol/L.
+3. **Add your data.** The recommended way is **Live from your phone**: get the phone app (**Get the phone app**, `/ui/help/phone`) and **Connect a phone** (the pairing QR opens right there). Or:
    - import a FreeStyle LibreView, Dexcom Clarity or generic CSV export (time zone detected from the browser; unit and date order auto-detected and overridable);
-   - load a 48-hour sample trace;
+   - load a 48-hour sample trace (also on the Add data page);
    - type readings in one at a time.
 
    Forecasts start after 2 hours of readings. Imports may include earlier readings than ones already there; forecasts and alerts are recalculated from the earliest new reading.
-4. **Today** shows the current value and trend, the next hour as a forecast band, and a plain sentence ("In range for the next hour", "Low predicted in 25 min", "High now"). **History** shows 24 h to 14 days, time in ranges, average, GMI and variability.
+4. **Today** shows the current value and trend, the next hour as a forecast band, and a plain sentence ("198 mg/dL, steady. Likely about 185 in 30 min.", "Heading below 70 in about 25 min (could reach 68).", "In range for the next hour."). Once 20 forecasts can be checked against later readings, one line says how close the 30-minute forecast usually came over the last 7 days. **History** shows 24 h to 14 days, time in ranges, average, GMI and variability.
 5. **Settings:** profile, alert sensitivity (standard, cautious or very cautious band), units, CSV export, password change, deleting readings, deleting the account (password required).
 
 **Clinician accounts** see the ward, patient, alert, model and system pages instead. Self-signup never creates them; an operator does:
@@ -90,16 +90,22 @@ For frontend development: `cd web && npm run dev` (Vite on :5173, API proxied to
 
 **Endpoints:**
 - Accounts: `POST /auth/register`, `/auth/login`, `/auth/token`, `/auth/pair`, `/auth/logout`, `/auth/password`; `GET /auth/me`
-- Personal (session or device token): `GET /me`, `PUT /me/profile`, `GET /me/status`, `GET /me/history`, `GET /me/alerts?after_id=` (with `after_id`: only newer alerts, oldest first), `POST /me/readings`, `POST /me/readings/batch` (offset-aware times, up to `max_batch`), `POST /me/import?tz=&unit=&dates=` (CSV body), `POST /me/sample`, `GET /me/export`, `DELETE /me/readings`, `DELETE /me`, `GET /me/devices`, `DELETE /me/devices/{id}`, `POST /me/pairing` (browser session only)
-- Staff (clinician session or API key): `POST /patients`, `POST /readings`, `GET /patients/{id}/forecast`, `GET /patients/{id}/history`, `GET /cohort/risk`, `GET /alerts`, `GET /export`, `GET /model`, `GET /stats`
+- Personal (session or device token): `GET /me`, `PUT /me/profile`, `GET /me/status`, `GET /me/accuracy` (median 30-min error over 7 days; null below 20 matched forecasts), `GET /me/history`, `GET /me/alerts?after_id=` (with `after_id`: only newer alerts, oldest first), `POST /me/readings`, `POST /me/readings/batch` (offset-aware times, up to `max_batch`), `POST /me/import?tz=&unit=&dates=` (CSV body), `POST /me/sample`, `GET /me/export`, `DELETE /me/readings`, `DELETE /me`, `GET /me/devices`, `DELETE /me/devices/{id}`, `POST /me/pairing` (browser session only)
+- Staff (clinician session or API key): `POST /patients`, `POST /readings`, `GET /patients/{id}/forecast`, `GET /patients/{id}/history`, `GET /cohort/risk`, `GET /alerts`, `GET /export`, `GET /model`, `GET /model/accuracy` (live accuracy and drift warnings, below), `GET /stats`
+- App downloads (public): `GET /downloads` (where to get the apps), `GET /download/phone.apk` and `/download/watch.apk` (when configured, `application/vnd.android.package-archive`)
 - `GET /metrics` (Prometheus), `GET /healthz`, `/ui/` (website)
 
-Everything except `/healthz`, `/ui/`, register, login, token, pair and logout needs a session or an API key. `/me` times carry a UTC offset; staff routes use naive server-local times. All responses carry a strict CSP and other security headers.
+**Alerts** fire when the person's selected forecast quantile reaches ≤ 70 mg/dL (hypo) or ≥ 180 (hyper) within the hour, with two exceptions that cut noise: no hyper alert while the latest reading is already ≥ 180 and no hypo alert while it is already ≤ 70 (Today already says "High now" / "Low now"), and a hyper alert needs the quantile to reach at least 190 (10 above the threshold) at some horizon. Hypo alerts keep no margin. The status ("at risk") is unaffected, and the phone's on-device alerts follow the same rule.
+
+**Live accuracy (drift):** each stored forecast is matched to the reading nearest its 30- and 60-minute target (within half the sampling interval; forecasts without one are left out). `GET /model/accuracy` returns rolling 7- and 30-day RMSE, MAE and 50 %/80 % band coverage for the cohort, each model version and each patient, a 30-day daily series with alert counts, and a warning when the served version's 7-day RMSE is more than 25 % above its evaluation's test RMSE. The staff Model page shows it.
+
+Everything except `/healthz`, `/downloads`, `/download/*`, `/ui/`, register, login, token, pair and logout needs a session or an API key. `/me` times carry a UTC offset; staff routes use naive server-local times. All responses carry a strict CSP and other security headers.
 
 **Main settings (`GLUCORAG_*`):**
 - `MODEL_PATH`, `DB_PATH`, `SIM_REPORT`, `API_KEYS` (optional, comma-separated)
 - `ALLOW_SIGNUP` (default true), `COOKIE_SECURE` (unset = only over HTTPS), `SESSION_DAYS` (14), `IMPORT_MAX_DAYS` (30: an import keeps the last N days of its file)
 - `PUBLIC_URL` (optional): the address phones use to reach the server, put in pairing QR codes, e.g. `http://192.168.1.20:8000`
+- `PHONE_APK`, `WATCH_APK` (optional): paths to the phone and watch app files, offered at `/download/phone.apk` and `/download/watch.apk` and linked from the website's help pages; unset = the help pages point to the project's GitHub releases
 - `CLOCK` (`wall` or `data`)
 - `HYPO_QUANTILE` (default 0.25), `HYPER_QUANTILE` (default 0.75): the ward default; each person's sensitivity setting overrides them for their own alerts
 - `HYPO_MG_DL` (≤ 70), `HYPER_MG_DL` (≥ 180)
@@ -116,8 +122,9 @@ A **phone app** receives readings live from Juggluco or xDrip+ and uploads them;
 (Galaxy Watch4 Classic, Wear OS 6) shows your current value, the next hour and alerts as watch-face
 complications, a tile and an app. Run the server on your home network
 (`GLUCORAG_HOST=0.0.0.0 glucorag-serve`), then on the website open Settings > Connected devices >
-Connect a phone and scan the QR code with the phone app. Build, install and set-up steps:
-`android/README.md`.
+Connect a phone and scan the QR code with the phone app. The website's help pages
+(`/ui/help/phone`, `/ui/help/watch`) walk through getting and installing both apps. Build,
+install and set-up steps: `android/README.md`.
 
 ## Results (`shanghai-v1`, ShanghaiDM test split)
 - **RMSE:** 12.04 ± 3.02 mg/dL at 30 min and 21.21 ± 6.01 at 60 min. The paper reports 12.7 ± 3.8 and 21.7 ± 6.9.

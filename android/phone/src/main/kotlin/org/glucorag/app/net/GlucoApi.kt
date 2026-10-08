@@ -5,7 +5,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -44,14 +43,6 @@ sealed interface ApiResult<out T> {
 
     /** No answer: connection refused, DNS, TLS, timeout. */
     data class Network(val cause: Throwable) : ApiResult<Nothing>
-}
-
-inline fun <T, R> ApiResult<T>.map(transform: (T) -> R): ApiResult<R> = when (this) {
-    is ApiResult.Ok -> ApiResult.Ok(transform(value))
-    ApiResult.Unauthorized -> ApiResult.Unauthorized
-    ApiResult.NeedsSetup -> ApiResult.NeedsSetup
-    is ApiResult.Http -> this
-    is ApiResult.Network -> this
 }
 
 /**
@@ -93,15 +84,8 @@ class GlucoApi(base: String, private val client: OkHttpClient, private val token
     suspend fun putProfile(profile: ProfileIn): ApiResult<ProfileSaved> =
         call(Request.Builder().url(url("me/profile")).put(jsonBody(ProfileIn.serializer(), profile)), ProfileSaved.serializer())
 
-    suspend fun status(): ApiResult<StatusDto> = get("me/status", StatusDto.serializer())
-
-    /** Readings in the [hours] before the latest one, oldest first. */
-    suspend fun history(hours: Int = 3): ApiResult<List<ReadingDto>> =
-        get("me/history", HistoryDto.serializer(), "hours" to hours.toString()).map { it.readings }
-
-    /** Alerts with an id above [id], oldest first. */
-    suspend fun alertsAfter(id: Long): ApiResult<List<AlertDto>> =
-        get("me/alerts", ListSerializer(AlertDto.serializer()), "after_id" to id.toString())
+    /** The account's profile, if it has one. */
+    suspend fun me(): ApiResult<MeOut> = get("me", MeOut.serializer())
 
     /** Times are sent as UTC ISO-8601 (`2026-10-06T08:00:00Z`). */
     suspend fun uploadBatch(readings: List<CgmReading>): ApiResult<BatchResult> {

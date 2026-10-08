@@ -107,93 +107,25 @@ class GlucoApiTest {
     }
 
     @Test
-    fun statusParsesRowPredictionAndIgnoresUnknownKeys() = runBlocking {
+    fun meParsesTheProfileAndIgnoresUnknownKeys() = runBlocking {
         token = "tok"
         json(
-            """{"status":{"patient_id":"p1","diabetes_type":"T1D","status":"at_risk","severity":"high",
-                 "last_reading":"2026-10-06T10:00:00+02:00","minutes_since_last":1.5,"stale":false,
-                 "latest_t0":"2026-10-06T10:00:00+02:00","model_version":"v7",
-                 "risk":[{"type":"hypo","horizon_min":30,"quantile":0.25,"value_mg_dl":65.0,
-                          "extreme_mg_dl":60.0,"margin_mg_dl":-5.0,"severity":"high"}],
-                 "active_alerts":["hypo"],"last_glucose_mg_dl":92.5,"trend_mg_dl_per_min":-1.2,
-                 "forecast":{"t0":"2026-10-06T10:00:00+02:00","horizons":[15,30],"low_quantile":0.25,
-                             "high_quantile":0.75,"low":[80.0,65.0],"median":[85.0,72.0],"high":[90.0,80.0]}},
-               "prediction":{"patient_id":"p1","t0":"2026-10-06T10:00:00.250000+02:00","horizons":[15,30],
-                             "quantiles":[0.25,0.5,0.75],"values":[[80.0,85.0,90.0],[65.0,72.0,80.0]],
-                             "model_version":"v7"},
-               "fresh":true,"hypo_quantile":0.25,"hyper_quantile":0.75,
-               "now":"2026-10-06T10:01:30+02:00","model":{"version":"v7"}}""",
+            """{"email":"a@b.c","role":"person","unit":"mmol/L",
+               "profile":{"age":41,"gender":"F","bmi":23.4,"diabetes_type":"T1D","sensitivity":"cautious",
+                          "hypo_quantile":0.1,"hyper_quantile":0.9},
+               "readings":{"count":3,"first":null,"last":null},"model":{"version":"v7"}}""",
         )
-        val s = ok(api.status())
-        val t0 = ms("2026-10-06T08:00:00Z")
-        assertEquals("at_risk", s.status.status)
-        assertEquals(t0, s.status.lastReading)
-        assertEquals(92.5, s.status.lastGlucoseMgDl!!, 0.0)
-        assertEquals(-1.2, s.status.trendMgDlPerMin!!, 0.0)
-        assertEquals(listOf(RiskFlagDto("hypo", 30, "high")), s.status.risk)
-        assertEquals(
-            ForecastBandDto(t0, listOf(15, 30), listOf(80.0, 65.0), listOf(85.0, 72.0), listOf(90.0, 80.0)),
-            s.status.forecast,
-        )
-        val p = s.prediction!!
-        assertEquals(t0 + 250, p.t0)
-        assertEquals(listOf(0.25, 0.5, 0.75), p.quantiles)
-        assertEquals(listOf(65.0, 72.0, 80.0), p.values[1])
-        assertTrue(s.fresh)
+        assertEquals(ProfileOut(41, "F", 23.4, "T1D", 0.1, 0.9), ok(api.me()).profile)
         val req = server.takeRequest()
         assertEquals("GET", req.method)
-        assertEquals("/me/status", req.target)
+        assertEquals("/me", req.target)
         assertEquals("Bearer tok", req.headers["Authorization"])
     }
 
     @Test
-    fun statusWithoutReadingsOrPrediction() = runBlocking {
-        json(
-            """{"status":{"status":"no_data","last_reading":null,"risk":[],"forecast":null},
-               "prediction":null,"fresh":false}""",
-        )
-        val s = ok(api.status())
-        assertEquals("no_data", s.status.status)
-        assertNull(s.status.lastReading)
-        assertNull(s.status.lastGlucoseMgDl)
-        assertNull(s.prediction)
-    }
-
-    @Test
-    fun historyGetsReadings() = runBlocking {
-        json(
-            """{"readings":[{"timestamp":"2026-10-06T09:55:00+02:00","glucose_mg_dl":101.0,"flag":"ok"},
-                            {"timestamp":"2026-10-06T10:00:00+02:00","glucose_mg_dl":99.5,"flag":"ok"}],
-               "since":"2026-10-06T07:00:00+02:00","until":"2026-10-06T10:00:00+02:00"}""",
-        )
-        assertEquals(
-            listOf(ReadingDto(ms("2026-10-06T07:55:00Z"), 101.0), ReadingDto(ms("2026-10-06T08:00:00Z"), 99.5)),
-            ok(api.history()),
-        )
-        val req = server.takeRequest()
-        assertEquals("GET", req.method)
-        assertEquals("/me/history?hours=3", req.target)
-    }
-
-    @Test
-    fun alertsAfterGetsNewerAlertsOldestFirst() = runBlocking {
-        json(
-            """[{"id":8,"patient_id":"p1","type":"hypo","horizon_min":30,"severity":"high",
-                 "t_raised":"2026-10-06T10:00:00+02:00","t0":"2026-10-06T09:59:00+02:00",
-                 "model_version":"v7","details":{"x":1}},
-                {"id":9,"patient_id":"p1","type":"data_gap","horizon_min":null,"severity":null,
-                 "t_raised":"2026-10-06T10:30:00+02:00","t0":null,"model_version":null,"details":{}}]""",
-        )
-        assertEquals(
-            listOf(
-                AlertDto(8, "hypo", "high", 30, ms("2026-10-06T08:00:00Z"), ms("2026-10-06T07:59:00Z")),
-                AlertDto(9, "data_gap", null, null, ms("2026-10-06T08:30:00Z"), null),
-            ),
-            ok(api.alertsAfter(7)),
-        )
-        val req = server.takeRequest()
-        assertEquals("GET", req.method)
-        assertEquals("/me/alerts?after_id=7", req.target)
+    fun meWithoutProfile() = runBlocking {
+        json("""{"email":"a@b.c","role":"person","unit":"mg/dL","profile":null}""")
+        assertNull(ok(api.me()).profile)
     }
 
     @Test
@@ -229,13 +161,13 @@ class GlucoApiTest {
         json("""{"detail":"Email or password is incorrect."}""", 401)
         assertEquals(ApiResult.Unauthorized, api.signIn("a@b.c", "bad", "Pixel"))
         json("""{"detail":"Not authenticated"}""", 401)
-        assertEquals(ApiResult.Unauthorized, api.status())
+        assertEquals(ApiResult.Unauthorized, api.me())
     }
 
     @Test
     fun conflictMapsToNeedsSetup() = runBlocking {
         json("""{"detail":"Set up your profile first."}""", 409)
-        assertEquals(ApiResult.NeedsSetup, api.status())
+        assertEquals(ApiResult.NeedsSetup, api.uploadBatch(listOf(CgmReading(0, 100.0, null, "xdrip"))))
     }
 
     @Test

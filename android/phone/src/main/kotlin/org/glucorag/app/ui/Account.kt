@@ -9,25 +9,34 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.glucorag.app.data.LocalDb
+import org.glucorag.app.data.LocalProfile
 import org.glucorag.app.data.LocalState
-import org.glucorag.app.data.QueueDb
+import org.glucorag.app.data.QueuedReading
 import org.glucorag.app.data.Session
 import org.glucorag.app.data.SessionStore
+import org.glucorag.app.forecast.OnDevice
+import org.glucorag.app.forecast.Sensitivity
 import org.glucorag.app.net.ApiResult
 import org.glucorag.app.net.GlucoApi
 import org.glucorag.app.net.ProfileIn
 import org.glucorag.app.net.TokenOut
+import org.glucorag.app.source.SimulatedFeed
 import org.glucorag.app.source.Simulation
 import org.glucorag.app.sync.SyncWorker
 import org.glucorag.shared.ServerUrlCheck
 import org.glucorag.shared.checkServerUrl
 
 /**
- * The session after signing in: a fresh one. Alert and thinning markers start over, so the
- * first readings are never compared with another account's last queued reading.
+ * The session after signing in. Switching from another account starts over; otherwise the
+ * thinning marker carries on, so the phone keeps storing one reading per 5 minutes.
  */
-internal fun signedIn(base: String, token: String, email: String, unit: String): Session =
-    Session(server = base, token = token, email = email, unit = unit)
+internal fun signedIn(previous: Session, base: String, token: String, email: String, unit: String, otherAccount: Boolean): Session =
+    Session(server = base, token = token, email = email, unit = unit, lastStoredT = previous.lastStoredT.takeUnless { otherAccount })
+
+/** The session after signing out but keeping readings and About you: this phone only. */
+internal fun keptOnPhone(previous: Session): Session =
+    Session(localOnly = true, lastStoredT = previous.lastStoredT, unit = previous.unit, simulated = previous.simulated)
 
 /** Sign-in, pairing, server check, profile and sign-out, outside the UI so screens stay declarative. */
 object Account {
@@ -63,6 +72,12 @@ object Account {
         }
     }
 
+    /** Uses GlucoRAG without a server; returns whether About you is already filled in. */
+    suspend fun useOnThisPhone(context: Context): Boolean {
+        SessionStore(context).update { it.copy(localOnly = true) }
+        return LocalState.get(context).profile.value != null
+    }
+
     /** Signs this phone in and stores the device token. */
     suspend fun signIn(context: Context, input: String, email: String, password: String): Result {
         val base = when (val check = checkServerUrl(input.trim())) {
@@ -92,21 +107,54 @@ object Account {
     }
 
     /**
-     * Stores the new device token. Replacing a signed-in account (pairing while signed in) revokes
-     * the old token, and drops readings still waiting for the old account.
+     * Stores the new device token. Replacing another signed-in account revokes its token and
+     * drops its data on the phone. Coming from this phone only, the readings kept here (not
+     * simulated ones) upload, and About you goes to the account if it has none.
      */
     private suspend fun finishSignIn(context: Context, base: String, out: TokenOut): Result {
         val app = context.applicationContext
         val store = SessionStore(app)
+        val db = LocalDb.get(app)
+        val local = LocalState.get(app)
         val previous = store.current()
         val otherAccount = previous.token != null && (previous.server != base || previous.email != out.account.email)
-        if (otherAccount) QueueDb.get(app).queue().clear()
+        if (otherAccount) {
+            db.queue().clear()
+            db.readings().clear()
+            local.clear()
+        } else {
+            local.clearSync()
+        }
         Simulation.cancel(app)
-        store.update { signedIn(base, out.token, out.account.email, out.account.unit) }
-        LocalState.get(app).clear()
+        store.update { signedIn(previous, base, out.token, out.account.email, out.account.unit, otherAccount) }
+        if (previous.localOnly) {
+            db.queue().insertAll(db.readings().all().filter { it.from != SimulatedFeed.FROM }.map { QueuedReading(it.t, it.mgdl, it.from) })
+        }
+        val hasProfile = shareProfile(app, base, out, previous.unit)
         SyncWorker.enqueue(app)
         if (previous.server != null && previous.token != null) revokeLater(previous.server, previous.token)
-        return Result.Ok("Signed in as ${out.account.email}", out.account.hasProfile)
+        OnDevice.run(app)
+        return Result.Ok("Signed in as ${out.account.email}", hasProfile)
+    }
+
+    /**
+     * The account's About you comes to the phone; without one, the phone's goes to the account
+     * (in the unit chosen on the phone). Returns whether either side has one.
+     */
+    private suspend fun shareProfile(context: Context, base: String, out: TokenOut, phoneUnit: String?): Boolean {
+        val local = LocalState.get(context)
+        val api = api(base, out.token)
+        val me = api.me()
+        if (me !is ApiResult.Ok) return out.account.hasProfile || local.profile.value != null
+        me.value.profile?.let {
+            local.setProfile(LocalProfile.of(it))
+            return true
+        }
+        val mine = local.profile.value ?: return false
+        val saved = api.putProfile(mine.toProfileIn(phoneUnit ?: out.account.unit))
+        if (saved is ApiResult.Ok) SessionStore(context).update { it.copy(unit = saved.value.unit) }
+        // A failed upload is retried by the next sync.
+        return true
     }
 
     private fun revokeLater(server: String, token: String) {
@@ -119,32 +167,54 @@ object Account {
         }
     }
 
-    /** Saves the About-you form (`PUT /me/profile`) and the unit it chose. */
-    suspend fun saveProfile(context: Context, profile: ProfileIn): Result {
-        val store = SessionStore(context)
+    /**
+     * Saves the About-you form: on the account first when signed in (`PUT /me/profile`), then on
+     * the phone, keeping the alert sensitivity already chosen on the website. Forecasts again.
+     */
+    suspend fun saveProfile(context: Context, form: ProfileIn): Result {
+        val app = context.applicationContext
+        val store = SessionStore(app)
+        val local = LocalState.get(app)
         val s = store.current()
-        val base = s.server ?: return Result.Error("Sign in first.")
-        val api = try {
-            api(base, s.token)
-        } catch (e: IllegalArgumentException) {
-            return Result.Error(e.message ?: UNREACHABLE)
-        }
-        return when (val r = api.putProfile(profile)) {
-            is ApiResult.Ok -> {
-                store.update { it.copy(unit = r.value.unit) }
-                SyncWorker.enqueue(context)
-                Result.Ok("Saved.")
+        val existing = local.profile.value
+        val sensitivity = existing?.let { Sensitivity.of(it.hypoQuantile, it.hyperQuantile) } ?: Sensitivity.STANDARD
+        val body = form.copy(sensitivity = sensitivity.key)
+        var unit = body.unit
+        if (s.token != null && s.server != null) {
+            val api = try {
+                api(s.server, s.token)
+            } catch (e: IllegalArgumentException) {
+                return Result.Error(e.message ?: UNREACHABLE)
             }
-            ApiResult.Unauthorized -> Result.Error("Signed out on the server. Sign in again.")
-            is ApiResult.Http -> Result.Error(r.message)
-            is ApiResult.Network -> Result.Error(UNREACHABLE)
-            ApiResult.NeedsSetup -> Result.Error("The server didn't accept these details.")
+            when (val r = api.putProfile(body)) {
+                is ApiResult.Ok -> unit = r.value.unit
+                ApiResult.Unauthorized -> return Result.Error("Signed out on the server. Sign in again.")
+                is ApiResult.Http -> return Result.Error(r.message)
+                is ApiResult.Network -> return Result.Error(UNREACHABLE)
+                ApiResult.NeedsSetup -> return Result.Error("The server didn't accept these details.")
+            }
+            SyncWorker.enqueue(app)
         }
+        local.setProfile(
+            LocalProfile(
+                body.age, body.gender, body.bmi, body.diabetesType,
+                existing?.hypoQuantile ?: sensitivity.hypoQuantile,
+                existing?.hyperQuantile ?: sensitivity.hyperQuantile,
+            ),
+        )
+        store.update { it.copy(unit = unit) }
+        OnDevice.run(app)
+        return Result.Ok("Saved.")
     }
 
-    /** Revokes the token (best effort), drops waiting readings and forgets local state. */
-    suspend fun signOut(context: Context) {
-        val store = SessionStore(context)
+    /**
+     * Revokes the token (best effort) and drops readings waiting for upload. With [keepOnPhone]
+     * the phone goes on without a server, keeping its readings and About you; otherwise it
+     * forgets them too.
+     */
+    suspend fun signOut(context: Context, keepOnPhone: Boolean) {
+        val app = context.applicationContext
+        val store = SessionStore(app)
         val s = store.current()
         if (s.server != null && s.token != null) {
             try {
@@ -153,10 +223,18 @@ object Account {
                 // A stored address the rule now rejects: nothing to revoke there.
             }
         }
-        WorkManager.getInstance(context).cancelUniqueWork("sync")
-        Simulation.cancel(context)
-        QueueDb.get(context).queue().clear()
-        store.clear()
-        LocalState.get(context).clear()
+        WorkManager.getInstance(app).cancelUniqueWork("sync")
+        val db = LocalDb.get(app)
+        db.queue().clear()
+        val local = LocalState.get(app)
+        if (keepOnPhone) {
+            store.update(::keptOnPhone)
+            local.clearSync()
+        } else {
+            Simulation.cancel(app)
+            store.clear()
+            db.readings().clear()
+            local.clear()
+        }
     }
 }

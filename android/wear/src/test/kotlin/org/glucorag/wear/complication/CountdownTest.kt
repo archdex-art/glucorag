@@ -41,4 +41,13 @@ class CountdownTest {
     fun noRiskNoCountdown() {
         assertNull(countdownTarget(snapshot(120.0, null), now))
     }
+
+    /** The countdown names the threshold, not the furthest value: that comes later than the crossing. */
+    @Test
+    fun longTextCountsDownToCrossingTheThresholdInTheUnit() {
+        assertEquals("Below 70 in ^1", countdownTemplate(Risk("hypo", now, "medium", 61.0), GlucoseUnit.MG_DL))
+        assertEquals("Above 180 in ^1", countdownTemplate(Risk("hyper", now, "medium", 205.0), GlucoseUnit.MG_DL))
+        assertEquals("Below 3.9 in ^1", countdownTemplate(Risk("hypo", now, "medium"), GlucoseUnit.MMOL_L))
+        assertEquals("Above 10.0 in ^1", countdownTemplate(Risk("hyper", now, "medium"), GlucoseUnit.MMOL_L))
+    }
 }

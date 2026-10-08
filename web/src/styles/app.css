@@ -1503,12 +1503,128 @@ input::placeholder {
   word-break: break-all;
 }
 
+/* Live accuracy: hand-drawn SVG sparklines, stretched to the column width. */
+.live-accuracy-table .live-scope {
+  vertical-align: top;
+  text-align: left;
+}
+
+.live-scope .chip {
+  margin-left: 0.375rem;
+}
+
+.live-accuracy-table tbody + tbody {
+  border-top: 2px solid var(--line-strong);
+}
+
+.spark-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem 2.5rem;
+  margin-top: 1.5rem;
+}
+
+.spark {
+  margin: 0;
+  min-width: 0;
+}
+
+.spark-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.375rem;
+  font-size: var(--fs-row);
+  font-weight: 600;
+}
+
+.spark-value {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.spark-svg {
+  display: block;
+  overflow: visible;
+}
+
+.spark-svg line,
+.spark-svg path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark-base {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.spark-line {
+  stroke: var(--action);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.spark-reference {
+  stroke: var(--ink-2);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.spark-hypo {
+  fill: var(--zone-low-fill);
+}
+
+.spark-hyper {
+  fill: var(--zone-high-fill);
+}
+
+.spark-data_gap {
+  fill: var(--line-strong);
+}
+
+.spark-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+  font-size: var(--fs-caption);
+  color: var(--ink-2);
+}
+
+.key-line::before {
+  height: 0;
+  border-top: 2px solid var(--action);
+}
+
+.key-reference::before {
+  height: 0;
+  border-top: 1px dashed var(--ink-2);
+}
+
+.key-hypo::before {
+  background: var(--zone-low-fill);
+}
+
+.key-hyper::before {
+  background: var(--zone-high-fill);
+}
+
+.key-data_gap::before {
+  background: var(--line-strong);
+}
+
 /* ---------- System ---------- */
 
 .facts-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0;
+}
+
+.system-note {
+  max-width: 60ch;
+  margin-top: 0.75rem;
 }
 
 .facts-group {
@@ -2191,37 +2307,33 @@ a.button:not(.button-primary) {
 
 /* ---------- Add-data choices ---------- */
 
-.choice-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 1rem 0 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-
-.choice {
+/* The recommended way in: one outlined card with its two actions. */
+.choice-featured {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 0.625rem;
+  margin-top: 1rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+  border: 2px solid var(--action);
+  border-radius: var(--radius-sheet);
+}
+
+.choice-featured-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
-  padding: 1.25rem 1.5rem 1.5rem 0;
 }
 
-.choice:nth-child(even) {
-  padding-left: 1.5rem;
-  border-left: 1px solid var(--line);
-}
-
-.choice:nth-child(n + 3) {
-  border-top: 1px solid var(--line);
-}
-
-.choice p {
-  flex: 1;
+.choice-featured > p {
+  max-width: 62ch;
   font-size: var(--fs-row);
   color: var(--ink-2);
+}
+
+.choice-featured .pair-panel {
+  align-self: stretch;
 }
 
 .choice-icon {
@@ -2234,12 +2346,59 @@ a.button:not(.button-primary) {
   font-size: var(--fs-body);
 }
 
-.choice .button {
-  margin-top: 0.5rem;
+.chip-recommended {
+  border-color: var(--action);
+  color: var(--action);
+}
+
+.choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.choice-connected {
+  font-size: var(--fs-row);
+}
+
+.choice-more {
+  margin-top: 1.5rem;
+}
+
+.choice-more-title {
+  margin-bottom: 0.75rem;
+  font-size: var(--fs-body);
+}
+
+.choice-more > .muted {
+  max-width: 62ch;
+  font-size: var(--fs-row);
+}
+
+.choice-secondary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.choice-secondary li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+}
+
+.choice-secondary p {
+  font-size: var(--fs-meta);
+  color: var(--ink-2);
 }
 
 .choices .form-error {
-  margin-top: 1rem;
+  margin-top: 0.25rem;
 }
 
 .today-empty-title {
@@ -2248,6 +2407,57 @@ a.button:not(.button-primary) {
 
 .today-empty-lede {
   color: var(--ink-2);
+}
+
+/* ---------- Install help ---------- */
+
+.help-steps {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 62ch;
+  margin: 1.5rem 0 0;
+  padding-left: 1.5rem;
+}
+
+.help-steps li {
+  padding-left: 0.25rem;
+}
+
+.help-steps li::marker {
+  font-weight: 600;
+}
+
+.help-steps p + p,
+.help-steps p + pre,
+.help-steps pre + p {
+  margin-top: 0.5rem;
+}
+
+.help-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.help-command {
+  overflow-x: auto;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--wash);
+  font-size: var(--fs-row);
+}
+
+.help-note {
+  max-width: 62ch;
+  margin-top: 1.5rem;
+  font-size: var(--fs-row);
+  color: var(--ink-2);
+}
+
+.link-icon {
+  margin-left: 0.25rem;
+  vertical-align: -0.125em;
 }
 
 /* ---------- Today ---------- */
@@ -2325,6 +2535,10 @@ a.button:not(.button-primary) {
 
 .status-detail li + li {
   margin-top: 0.375rem;
+}
+
+.today-accuracy {
+  max-width: 44ch;
 }
 
 .readout-stack .readout {
@@ -2672,11 +2886,6 @@ a.button:not(.button-primary) {
   font-weight: 600;
 }
 
-.radio-card-meta {
-  font-size: var(--fs-caption);
-  color: var(--ink-2);
-}
-
 .settings-actions,
 .account-side {
   display: flex;
@@ -2744,6 +2953,12 @@ a.button:not(.button-primary) {
   align-items: stretch;
   gap: 1rem;
   min-width: 0;
+}
+
+.device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
 }
 
 .pair-panel {
@@ -2875,22 +3090,27 @@ a.button:not(.button-primary) {
   }
 
   .welcome-steps ol,
-  .choice-list,
+  .choice-secondary,
   .radio-cards {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .welcome-steps li,
-  .welcome-steps li + li,
-  .choice,
-  .choice:nth-child(even) {
+  .welcome-steps li + li {
     padding: 1rem 0;
     border-left: 0;
   }
 
-  .welcome-steps li + li,
-  .choice + .choice {
+  .welcome-steps li + li {
     border-top: 1px solid var(--line);
+  }
+
+  .choice-featured {
+    padding: 1rem 1.25rem 1.25rem;
+  }
+
+  .spark-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .auth-sheet {

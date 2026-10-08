@@ -30,6 +30,7 @@ from glucorag.core.accounts import (
 )
 from glucorag.core.schemas import PatientProfile
 from glucorag.core.storage import DeviceSession, UserGoneError
+from glucorag.evaluate.live import MIN_COUNT
 from glucorag.ingest.importers import (
     MAX_BYTES,
     MMOL_TO_MG_DL,
@@ -191,6 +192,23 @@ def status(user: CurrentUser, service: Service) -> JSONResponse:
         "hyper_quantile": hyper_q,
         "now": service.clock.now(),
         "model": _model_facts(service),
+    })
+
+
+@router.get("/accuracy")
+def accuracy(user: CurrentUser, service: Service) -> JSONResponse:
+    """How close the 30-min forecast came over the last 7 days: the median absolute error,
+    or null below ``MIN_COUNT`` matched forecasts (too few to say)."""
+    _require_profile(user, service)
+    report = service.accuracy(user.patient_id)
+    h30 = next(h for h in report.cohort.last_7_days if h.horizon_min == 30)
+    enough = h30.count >= MIN_COUNT and h30.median_abs_error_mg_dl is not None
+    return local_json({
+        "days": 7,
+        "horizon_min": 30,
+        "count": h30.count,
+        "min_count": MIN_COUNT,
+        "median_abs_error_mg_dl": h30.median_abs_error_mg_dl if enough else None,
     })
 
 

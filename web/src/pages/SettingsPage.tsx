@@ -1,10 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, LogOut, QrCode, RefreshCw, Trash2, Unplug, X } from 'lucide-react';
+import { Download, LogOut, QrCode, Smartphone, Trash2, Unplug, Watch } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, errorMessage } from '../api/errors';
-import { DEVICES_KEY, ME_KEY, useDevices, useMe, useMeStatus } from '../api/hooks';
-import type { Device, MeInfo, MeStatus, PairingCode, ProfileInput, Sensitivity, Unit } from '../api/types';
+import { DEVICES_KEY, ME_KEY, useMe, useMeStatus } from '../api/hooks';
+import type { Device, MeInfo, MeStatus, ProfileInput, Sensitivity, Unit } from '../api/types';
 import { useAccount, useApi, useAuth } from '../auth/context';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Field, FieldError, PasswordInput } from '../components/Field';
@@ -13,11 +13,12 @@ import { PageHeader } from '../components/PageHeader';
 import { ProfileForm, type ProfileValues } from '../components/ProfileForm';
 import { ErrorState, Skeleton } from '../components/States';
 import { ICON } from '../components/icon';
+import { PairingPanel } from '../components/PairingPanel';
+import { usePhonePairing } from '../components/usePhonePairing';
 import { describeDevice } from '../lib/devices';
 import { saveBlob } from '../lib/download';
 import { quantileIndex, sortForecast } from '../lib/forecast';
-import { fmtInt, fmtQuantile } from '../lib/format';
-import { formatCountdown, secondsLeft } from '../lib/pairing';
+import { fmtInt } from '../lib/format';
 import { forgetSource } from '../lib/source';
 import { formatDateTime, formatWhen, tryParseApiTime } from '../lib/time';
 import { UNITS, formatGlucose } from '../lib/units';
@@ -157,8 +158,8 @@ function SensitivitySection({ me }: { me: MeInfo }) {
       <div className="settings-head">
         <h2 id="sensitivity-heading">Alert sensitivity</h2>
         <p className="muted">
-          How wide a forecast band must reach below {lowLine} or above {highLine} {unit} before you are warned. A wider band
-          warns earlier and more often.
+          How likely a low (at or below {lowLine}) or a high (at or above {highLine} {unit}) must be before you are warned. A
+          more cautious setting warns earlier and more often.
         </p>
       </div>
       <form className="form" onSubmit={(e) => void submit(e)}>
@@ -177,13 +178,10 @@ function SensitivitySection({ me }: { me: MeInfo }) {
                   <span className="radio-card-text">{s.text}</span>
                   {edges ? (
                     <span className="radio-card-preview num">
-                      Your forecast{t0 !== null ? ` from ${formatWhen(t0, now)}` : ''}: {formatGlucose(edges[0], unit)} to{' '}
-                      {formatGlucose(edges[1], unit)} {unit}
+                      Your forecast{t0 !== null ? ` from ${formatWhen(t0, now)}` : ''} with this setting: {formatGlucose(edges[0], unit)}{' '}
+                      to {formatGlucose(edges[1], unit)} {unit}
                     </span>
                   ) : null}
-                  <span className="radio-card-meta num">
-                    Band edges {fmtQuantile(s.q[0])} and {fmtQuantile(s.q[1])}
-                  </span>
                 </span>
               </label>
             );
@@ -356,140 +354,24 @@ function DataSection({ me }: { me: MeInfo }) {
   );
 }
 
-/** While open the devices list is polled this often, so a phone that pairs shows up. */
-const PAIR_POLL_MS = 5_000;
-
-interface PairingPanelProps {
-  pairing: PairingCode | null;
-  busy: boolean;
-  error: string | null;
-  onRenew: () => void;
-  onClose: () => void;
-}
-
-/** The pairing QR and code with a live countdown; mounted only while open. */
-function PairingPanel({ pairing, busy, error, onRenew, onClose }: PairingPanelProps) {
-  const headingId = useId();
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const left = pairing ? secondsLeft(pairing.expires_at, now) : 0;
-  const expired = pairing !== null && left === 0;
-
-  return (
-    <div className="pair-panel" role="region" aria-labelledby={headingId}>
-      <div className="pair-top">
-        <h3 id={headingId}>Connect a phone</h3>
-        <button type="button" className="button button-quiet" onClick={onClose}>
-          <X {...ICON} />
-          Close
-        </button>
-      </div>
-      <p className="pair-steps">Open GlucoRAG on your phone and tap Scan QR code. Or point your phone&apos;s camera at the code.</p>
-      {error ? (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {pairing === null && busy ? <Skeleton label="Making a pairing code" rows={3} variant="block" /> : null}
-      {pairing ? (
-        <div className="pair-body">
-          {/* The CSP allows data: images, and an <img> never runs script inside an SVG. */}
-          <img
-            className={expired ? 'pair-qr pair-qr-expired' : 'pair-qr'}
-            src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(pairing.qr_svg)}`}
-            alt={`QR code for pairing code ${pairing.code}`}
-          />
-          <dl className="pair-facts">
-            <div>
-              <dt>Pairing code</dt>
-              <dd className="pair-code">{pairing.code}</dd>
-              <dd className="pair-expiry num">{expired ? 'Expired' : `Expires in ${formatCountdown(left)}`}</dd>
-            </div>
-            <div>
-              <dt>Server address</dt>
-              <dd className="pair-server">
-                <code>{pairing.server_url}</code>
-              </dd>
-              {pairing.server_url_guessed ? (
-                <dd className="pair-note">If your phone can&apos;t reach this address, set GLUCORAG_PUBLIC_URL</dd>
-              ) : null}
-            </div>
-          </dl>
-        </div>
-      ) : null}
-      <p role="status" className="pair-status">
-        {expired ? 'This code has expired. Make a new one.' : pairing ? 'Waiting for your phone. This list updates when it connects.' : null}
-      </p>
-      <div>
-        <button type="button" className="button" disabled={busy} onClick={onRenew}>
-          <RefreshCw {...ICON} />
-          {busy ? 'Making a new code' : 'Make a new code'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Phones signed in with a device token; the Add-data choices link here as `/settings#devices`. */
+/** Phones signed in with a device token; links here use `/settings#devices`. */
 function DevicesSection() {
   const api = useApi();
   const queryClient = useQueryClient();
   const canPair = useAccount().role === 'person';
-  // Device ids present when the pairing panel opened; null while it is closed.
-  const [known, setKnown] = useState<ReadonlySet<number> | null>(null);
-  const devices = useDevices(known ? PAIR_POLL_MS : false);
-  const { hash } = useLocation();
+  const pair = usePhonePairing();
+  const devices = pair.devices;
+  const { hash, pathname } = useLocation();
   const ref = useRef<HTMLElement>(null);
   const [target, setTarget] = useState<Device | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pairing, setPairing] = useState<PairingCode | null>(null);
-  const [pairBusy, setPairBusy] = useState(false);
-  const [pairError, setPairError] = useState<string | null>(null);
-  const [connected, setConnected] = useState<string | null>(null);
   // Relative times are as of the fetch; the list refetches when the window regains focus.
   const now = devices.dataUpdatedAt;
-
-  // A device that appeared while the panel is open is the phone that just paired: close the
-  // panel once (adjusting state during render, so a later disconnect cannot reopen it).
-  const added = known ? devices.data?.find((d) => !known.has(d.id)) : undefined;
-  if (added) {
-    setKnown(null);
-    setPairing(null);
-    setConnected(`Phone connected: ${added.device}.`);
-  }
 
   useEffect(() => {
     if (hash === '#devices' && !devices.isPending) ref.current?.scrollIntoView({ block: 'start' });
   }, [hash, devices.isPending]);
-
-  async function makeCode() {
-    setPairBusy(true);
-    setPairError(null);
-    try {
-      setPairing(await api.createPairing());
-    } catch (err) {
-      setPairError(errorMessage(err));
-    } finally {
-      setPairBusy(false);
-    }
-  }
-
-  function openPairing() {
-    setKnown(new Set((devices.data ?? []).map((d) => d.id)));
-    setConnected(null);
-    setPairing(null);
-    void makeCode();
-  }
-
-  function closePairing() {
-    setKnown(null);
-    setPairing(null);
-    setPairError(null);
-  }
 
   async function disconnect(device: Device) {
     setBusy(true);
@@ -542,16 +424,22 @@ function DevicesSection() {
             ))}
           </ul>
         ) : null}
-        <Saved text={connected} />
-        {canPair && known ? (
-          <PairingPanel pairing={pairing} busy={pairBusy} error={pairError} onRenew={() => void makeCode()} onClose={closePairing} />
-        ) : null}
-        {canPair && !known ? (
-          <div>
-            <button type="button" className="button button-primary" disabled={!devices.data} onClick={openPairing}>
+        <Saved text={pair.connected} />
+        {canPair && pair.open ? <PairingPanel pairing={pair} /> : null}
+        {canPair && !pair.open ? (
+          <div className="device-actions">
+            <button type="button" className="button button-primary" disabled={!devices.data} onClick={pair.start}>
               <QrCode {...ICON} />
               Connect a phone
             </button>
+            <Link className="button" to="/help/phone" state={{ from: `${pathname}#devices` }}>
+              <Smartphone {...ICON} />
+              Get the phone app
+            </Link>
+            <Link className="button button-quiet" to="/help/watch" state={{ from: `${pathname}#devices` }}>
+              <Watch {...ICON} />
+              Install the watch app
+            </Link>
           </div>
         ) : null}
       </div>

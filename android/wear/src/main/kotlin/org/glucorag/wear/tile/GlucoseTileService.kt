@@ -27,11 +27,10 @@ import org.glucorag.wear.ui.MainActivity
 import org.glucorag.wear.ui.bandText
 import org.glucorag.wear.ui.clockTime
 import org.glucorag.wear.ui.isOld
-import org.glucorag.wear.ui.serverLine
 
 /**
  * The glucose tile: sentence, value + arrow, "at 14:05" (absolute, since the tile doesn't advance
- * between updates), the 60-min band and the server line when not ok. Updated on snapshot change,
+ * between updates) and the 60-min band. Updated on snapshot change,
  * at most once a minute (see `ComplicationPusher`).
  */
 class GlucoseTileService : Material3TileService() {
@@ -66,9 +65,6 @@ class GlucoseTileService : Material3TileService() {
             lines += text(LayoutString(value), typography = Typography.DISPLAY_SMALL, color = LayoutColor(color.toArgb()))
             lines += text(LayoutString("at ${clockTime(now.t)}"), typography = Typography.BODY_SMALL)
             bandText(s, 60, nowMs)?.let { lines += text(LayoutString(it), typography = Typography.BODY_SMALL) }
-        }
-        s?.let { serverLine(it.server.state) }?.let {
-            lines += text(LayoutString(it), typography = Typography.LABEL_SMALL, color = LayoutColor(Colors.Ink2.toArgb()))
         }
         return lines
     }

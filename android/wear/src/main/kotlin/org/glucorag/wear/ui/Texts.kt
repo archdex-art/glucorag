@@ -34,13 +34,3 @@ fun bandText(s: Snapshot, horizon: Int, nowMs: Long): String? {
     if (nowMs >= f.t0 + horizon * MINUTE_MS) return null
     return "In $horizon min: ${formatGlucose(f.low[i], s.unit)}–${formatGlucose(f.high[i], s.unit)}"
 }
-
-/** The server line shown when its state isn't `ok`; null when it is. */
-fun serverLine(state: String): String? = when (state) {
-    "ok" -> null
-    "unreachable" -> "GlucoRAG server unreachable"
-    "warming_up" -> "Server collecting readings"
-    "signed_out" -> "Signed out on phone"
-    "needs_setup" -> "Finish setup on phone"
-    else -> "Server: $state"
-}

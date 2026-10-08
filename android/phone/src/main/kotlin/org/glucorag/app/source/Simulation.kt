@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Simulated readings ([SimulatedFeed]) through the same path as Juggluco's and xDrip+'s
- * broadcasts: [Pipeline.receive] keeps, queues and uploads them. On start the last 3 h arrive at
+ * broadcasts: [Pipeline.receiveAll] keeps them, forecasts, and queues them when a server is set. On start the last 3 h arrive at
  * once; then [SimulatedWorker] adds the readings due every 5 minutes until [stop] or sign-out.
  */
 object Simulation {
@@ -35,7 +35,7 @@ object Simulation {
         SessionStore(app).update { it.copy(simulated = false) }
     }
 
-    /** Stops the timer only; signing in or out also resets the stored on/off. */
+    /** Stops the timer only; signing in also resets the stored on/off. */
     fun cancel(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(WORK)
     }
@@ -43,7 +43,7 @@ object Simulation {
     /** Feeds every reading due since the phone's newest one, at most the last 3 h. */
     internal suspend fun feed(context: Context, nowMs: Long = System.currentTimeMillis()) {
         val after = LocalState.get(context).reading.value?.t
-        SimulatedFeed.readings(after, nowMs).forEach { Pipeline.receive(context, it, nowMs) }
+        Pipeline.receiveAll(context, SimulatedFeed.readings(after, nowMs), nowMs)
     }
 
     /**

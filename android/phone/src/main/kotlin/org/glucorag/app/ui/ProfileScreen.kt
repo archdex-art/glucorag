@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.glucorag.app.data.LocalProfile
 import org.glucorag.app.net.ProfileIn
 import org.glucorag.shared.GlucoseUnit
 
@@ -74,26 +75,27 @@ private fun NumberField(value: String, onChange: (String) -> Unit, label: String
 }
 
 /**
- * About you: the four facts the model reads (as on the website's set-up), and the glucose unit.
- * Saves with `PUT /me/profile`, then [onSaved].
+ * About you: the four facts the model reads (as on the website's set-up), and the glucose unit,
+ * filled in from [existing] when editing. Saves on the phone (and with `PUT /me/profile` unless
+ * [phoneOnly]), then [onSaved].
  */
 @Composable
-fun ProfileScreen(onSaved: () -> Unit) {
+fun ProfileScreen(existing: LocalProfile?, unitLabel: String?, phoneOnly: Boolean, onSaved: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val region = LocalConfiguration.current.locales[0]?.country
-    var type by rememberSaveable { mutableStateOf<String?>(null) }
-    var age by rememberSaveable { mutableStateOf("") }
-    var sex by rememberSaveable { mutableStateOf<String?>(null) }
-    var knowBmi by rememberSaveable { mutableStateOf(false) }
+    var type by rememberSaveable { mutableStateOf(existing?.diabetesType) }
+    var age by rememberSaveable { mutableStateOf(existing?.age?.toString() ?: "") }
+    var sex by rememberSaveable { mutableStateOf(existing?.gender) }
+    var knowBmi by rememberSaveable { mutableStateOf(existing != null) }
     var imperial by rememberSaveable { mutableStateOf(usesImperial(region)) }
-    var bmiTyped by rememberSaveable { mutableStateOf("") }
+    var bmiTyped by rememberSaveable { mutableStateOf(existing?.bmi?.let(::bmiText) ?: "") }
     var cm by rememberSaveable { mutableStateOf("") }
     var kg by rememberSaveable { mutableStateOf("") }
     var ft by rememberSaveable { mutableStateOf("") }
     var inch by rememberSaveable { mutableStateOf("") }
     var lb by rememberSaveable { mutableStateOf("") }
-    var unit by rememberSaveable { mutableStateOf(defaultGlucoseUnit(region).label) }
+    var unit by rememberSaveable { mutableStateOf(unitLabel ?: defaultGlucoseUnit(region).label) }
     var errors by remember { mutableStateOf(mapOf<String, String>()) }
     var serverError by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -142,7 +144,10 @@ fun ProfileScreen(onSaved: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("About you", style = MaterialTheme.typography.headlineSmall)
-        Hint("The forecast needs four facts about you: diabetes type, age, sex and body-mass index (BMI).")
+        Hint(
+            "The forecast needs four facts about you: diabetes type, age, sex and body-mass index (BMI)." +
+                if (phoneOnly) " They stay on this phone." else " They are saved to your GlucoRAG account.",
+        )
         Sheet {
             Choice(
                 "Diabetes type", "The model learned different glucose patterns for each type.",

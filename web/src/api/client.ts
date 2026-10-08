@@ -5,6 +5,7 @@ import type {
   Cohort,
   CycleResult,
   Device,
+  Downloads,
   ExportFormat,
   ExportKind,
   Forecast,
@@ -14,9 +15,11 @@ import type {
   ImportDates,
   ImportResult,
   ImportUnit,
+  MeAccuracy,
   MeHistory,
   MeInfo,
   MeStatus,
+  ModelAccuracy,
   ModelInfo,
   PairingCode,
   ProfileInput,
@@ -197,6 +200,11 @@ export class ApiClient {
     return this.getJson('/me/alerts', { query: { limit }, signal });
   }
 
+  /** 409 until the profile is set up. */
+  myAccuracy(signal?: AbortSignal): Promise<MeAccuracy> {
+    return this.getJson('/me/accuracy', { signal });
+  }
+
   /** 422 with `detail = {reason, detail}` when the reading is refused. */
   addReading(reading: ReadingInput): Promise<CycleResult> {
     return this.send('/me/readings', { method: 'POST', json: reading });
@@ -266,6 +274,18 @@ export class ApiClient {
 
   model(signal?: AbortSignal): Promise<ModelInfo> {
     return this.getJson('/model', { signal });
+  }
+
+  /** Forecasts matched with later readings: cohort, per version, per patient and per day. */
+  modelAccuracy(signal?: AbortSignal): Promise<ModelAccuracy> {
+    return this.getJson('/model/accuracy', { signal });
+  }
+
+  // ---------- Public ----------
+
+  /** App files this server offers; needs no session. */
+  downloads(signal?: AbortSignal): Promise<Downloads> {
+    return this.getJson('/downloads', { signal, expect401: true });
   }
 
   stats(signal?: AbortSignal): Promise<ServiceStats> {

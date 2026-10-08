@@ -29,27 +29,40 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.glucorag.app.data.LocalDb
+import org.glucorag.app.data.LocalProfile
 import org.glucorag.app.data.LocalState
-import org.glucorag.app.data.QueueDb
 import org.glucorag.app.data.Session
 import org.glucorag.app.source.Simulation
 import org.glucorag.app.sync.AlertNotifier
 import org.glucorag.app.sync.Channels
 
+private fun typeLabel(type: String) = if (type == "T1D") "Type 1" else "Type 2"
+
+private fun sexLabel(gender: String) = if (gender == "F") "female" else "male"
+
 @Composable
-fun SettingsScreen(session: Session, onBack: () -> Unit, onChangeSource: () -> Unit, onSignedOut: () -> Unit) {
+fun SettingsScreen(
+    session: Session,
+    profile: LocalProfile?,
+    onBack: () -> Unit,
+    onChangeSource: () -> Unit,
+    onEditDetails: () -> Unit,
+    onConnect: () -> Unit,
+    onSignedOut: (keptOnPhone: Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val reading by LocalState.get(context).reading.collectAsState()
-    val waiting by QueueDb.get(context).queue().observeCount().collectAsState(initial = 0)
+    val waiting by LocalDb.get(context).queue().observeCount().collectAsState(initial = 0)
     val watch = rememberWatchConnected()
     var confirmSignOut by remember { mutableStateOf(false) }
     var showLicence by remember { mutableStateOf(false) }
     var testMessage by remember { mutableStateOf<String?>(null) }
 
-    fun signOut() = scope.launch {
-        Account.signOut(context)
-        onSignedOut()
+    fun signOut(keep: Boolean) = scope.launch {
+        Account.signOut(context, keep)
+        onSignedOut(keep)
     }
 
     Column(
@@ -62,9 +75,26 @@ fun SettingsScreen(session: Session, onBack: () -> Unit, onChangeSource: () -> U
         Text("Settings", style = MaterialTheme.typography.headlineSmall)
         Sheet {
             SectionTitle("Account")
-            Text(session.email ?: "Not signed in")
-            Hint("Server: ${session.server ?: "not set"}")
-            Hint("Unit: ${session.unit ?: "mg/dL"}. Change it in Settings on the website.")
+            if (session.localOnly) {
+                Text("On this phone only")
+                Hint("Forecasts and alerts run on this phone. Your readings and details stay here.")
+                Button(onClick = onConnect) { Text("Connect to a GlucoRAG server") }
+                Hint("Your readings from this phone then upload to the account, and your details go to it if it has none.")
+            } else {
+                Text(session.email ?: "Not signed in")
+                session.server?.let { Hint("Server: ${hostOf(it)}") }
+                if (session.token == null) Button(onClick = onConnect) { Text("Sign in again") }
+            }
+        }
+        Sheet {
+            SectionTitle("About you")
+            if (profile == null) {
+                Hint("Not entered yet. The forecast needs your details.")
+            } else {
+                Text("${typeLabel(profile.diabetesType)}, ${profile.age} years, ${sexLabel(profile.gender)}, BMI ${bmiText(profile.bmi)}")
+            }
+            Hint("Glucose unit: ${session.unit ?: "mg/dL"}.")
+            OutlinedButton(onClick = onEditDetails) { Text(if (profile == null) "Enter your details" else "Edit your details") }
         }
         Sheet {
             SectionTitle("Readings")
@@ -83,7 +113,10 @@ fun SettingsScreen(session: Session, onBack: () -> Unit, onChangeSource: () -> U
                 Text("Simulated readings", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                 Switch(checked = session.simulated, onCheckedChange = null)
             }
-            Hint("Made-up readings, not from a sensor: the last 3 hours, then one every 5 minutes. They upload to your account like real ones.")
+            Hint(
+                "Made-up readings, not from a sensor: the last 3 hours, then one every 5 minutes." +
+                    if (session.localOnly || session.server == null) " They stay on this phone." else " They upload to your account like real ones.",
+            )
         }
         Sheet {
             SectionTitle("Watch")
@@ -103,16 +136,29 @@ fun SettingsScreen(session: Session, onBack: () -> Unit, onChangeSource: () -> U
             Hint("The Atkinson Hyperlegible Next font is licensed under the SIL Open Font License 1.1.")
             TextButton(onClick = { showLicence = true }) { Text("Read the licence") }
         }
-        Button(onClick = { if (waiting > 0) confirmSignOut = true else signOut() }) { Text("Sign out") }
+        if (!session.localOnly && (session.token != null || session.server != null)) {
+            Button(onClick = { confirmSignOut = true }) { Text("Sign out") }
+        }
         ResearchNotice()
     }
 
     if (confirmSignOut) {
+        val unsent = if (waiting > 0) " ${if (waiting == 1) "1 reading hasn't" else "$waiting readings haven't"} uploaded yet." else ""
         AlertDialog(
             onDismissRequest = { confirmSignOut = false },
             title = { Text("Sign out?") },
-            text = { Text("$waiting ${if (waiting == 1) "reading hasn't" else "readings haven't"} uploaded yet and will be deleted from this phone. They stay in your CGM app.") },
-            confirmButton = { Button(onClick = { confirmSignOut = false; signOut() }) { Text("Sign out") } },
+            text = {
+                Text(
+                    "Keep your readings and details on this phone to go on using GlucoRAG without a server, " +
+                        "or delete them from this phone. They stay in your CGM app either way.$unsent",
+                )
+            },
+            confirmButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    Button(onClick = { confirmSignOut = false; signOut(keep = true) }) { Text("Keep on this phone") }
+                    TextButton(onClick = { confirmSignOut = false; signOut(keep = false) }) { Text("Delete from this phone") }
+                }
+            },
             dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } },
         )
     }

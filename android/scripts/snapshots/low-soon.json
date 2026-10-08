@@ -159,7 +159,8 @@
  "risk": {
   "type": "hypo",
   "at": 1791386695000,
-  "severity": "medium"
+  "severity": "medium",
+  "mgdl": 57.8
  },
  "server": {
   "state": "ok",

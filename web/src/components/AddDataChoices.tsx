@@ -1,22 +1,71 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { FileUp, PencilLine, Smartphone, Sparkles } from 'lucide-react';
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { FileUp, PencilLine, QrCode, Smartphone, Sparkles } from 'lucide-react';
+import { useId, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ME_KEY } from '../api/hooks';
 import { errorMessage } from '../api/errors';
 import { useAccount, useApi } from '../auth/context';
 import { rememberSource } from '../lib/source';
+import { PairingPanel } from './PairingPanel';
 import { ICON } from './icon';
+import { usePhonePairing } from './usePhonePairing';
 
-/** The four equal ways to get readings in: import, sample, type them, or stream from the phone app. */
-export function AddDataChoices({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
+type Level = 2 | 3;
+
+/**
+ * The recommended way in: readings stream from the phone app. "Connect a phone" opens the
+ * pairing panel right here, so set-up never sends anyone off to Settings.
+ */
+export function PhoneChoice({ headingLevel = 2 }: { headingLevel?: Level }) {
+  const pair = usePhonePairing();
+  const { pathname, search } = useLocation();
+  const headingId = useId();
+  const H = headingLevel === 2 ? 'h2' : 'h3';
+
+  return (
+    <section className="choice-featured" aria-labelledby={headingId}>
+      <div className="choice-featured-head">
+        <Smartphone {...ICON} className="choice-icon" />
+        <H id={headingId} className="choice-title">
+          Live from your phone
+        </H>
+        <span className="chip chip-recommended">Recommended</span>
+      </div>
+      <p>
+        Readings arrive by themselves from Juggluco or xDrip+ on your Android phone, and your watch can show the forecast. Get
+        the GlucoRAG phone app, then connect it by scanning a code. No typing needed.
+      </p>
+      {pair.open ? (
+        <PairingPanel pairing={pair} />
+      ) : (
+        <div className="choice-actions">
+          <Link className="button button-primary" to="/help/phone" state={{ from: `${pathname}${search}` }}>
+            <Smartphone {...ICON} />
+            Get the phone app
+          </Link>
+          <button type="button" className="button" disabled={!pair.devices.data} onClick={pair.start}>
+            <QrCode {...ICON} />
+            Connect a phone
+          </button>
+        </div>
+      )}
+      {pair.connected ? (
+        <p role="status" className="choice-connected">
+          {pair.connected} New readings show on <Link to="/">Today</Link> as they arrive.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/** Loads the bundled 48-hour trace, then opens Today. Only for an account without readings. */
+export function SampleDataButton({ className = 'button' }: { className?: string }) {
   const api = useApi();
   const account = useAccount();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const H = headingLevel === 2 ? 'h2' : 'h3';
 
   async function loadSample() {
     setBusy(true);
@@ -33,49 +82,52 @@ export function AddDataChoices({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
   }
 
   return (
-    <div className="choices">
-      <ul className="choice-list">
-        <li className="choice">
-          <FileUp {...ICON} className="choice-icon" />
-          <H className="choice-title">Import from your sensor</H>
-          <p>A CSV export from FreeStyle LibreView or Dexcom Clarity, or any file with a time and a glucose column.</p>
-          <Link className="button button-primary" to="/add?tab=import">
-            Import file
-          </Link>
-        </li>
-        <li className="choice">
-          <Sparkles {...ICON} className="choice-icon" />
-          <H className="choice-title">Try with sample data</H>
-          <p>48 hours of readings from one person, moved so the last one is now. Delete them any time in Settings.</p>
-          <button type="button" className="button button-primary" disabled={busy} onClick={() => void loadSample()}>
-            {busy ? 'Loading sample data' : 'Load sample data'}
-          </button>
-        </li>
-        <li className="choice">
-          <PencilLine {...ICON} className="choice-icon" />
-          <H className="choice-title">Enter readings yourself</H>
-          <p>Type a value from your meter or sensor app. Forecasts start once there are 2 hours of readings.</p>
-          <Link className="button button-primary" to="/add">
-            Add reading
-          </Link>
-        </li>
-        <li className="choice">
-          <Smartphone {...ICON} className="choice-icon" />
-          <H className="choice-title">Live from your phone</H>
-          <p>
-            Readings stream from Juggluco or xDrip+ on your Android phone, and your watch shows the forecast. Install the GlucoRAG
-            phone app, then scan the code from Settings to sign it in. No typing needed.
-          </p>
-          <Link className="button button-primary" to="/settings#devices">
-            Connect a phone
-          </Link>
-        </li>
-      </ul>
+    <>
+      <button type="button" className={className} disabled={busy} onClick={() => void loadSample()}>
+        <Sparkles {...ICON} />
+        {busy ? 'Loading sample data' : 'Try sample data'}
+      </button>
       {error ? (
         <p className="form-error" role="alert">
           {error}
         </p>
       ) : null}
+    </>
+  );
+}
+
+/** Set-up step 2 and an empty Today: the phone first, the other three ways below it. */
+export function AddDataChoices({ headingLevel = 2 }: { headingLevel?: Level }) {
+  const moreId = useId();
+  const H = headingLevel === 2 ? 'h2' : 'h3';
+  return (
+    <div className="choices">
+      <PhoneChoice headingLevel={headingLevel} />
+      <section className="choice-more" aria-labelledby={moreId}>
+        <H id={moreId} className="choice-more-title">
+          Or start another way
+        </H>
+        <ul className="choice-secondary">
+          <li>
+            <Link className="button" to="/add?tab=import">
+              <FileUp {...ICON} />
+              Import a file
+            </Link>
+            <p>A LibreView or Dexcom Clarity export, or any file with a time and a glucose column.</p>
+          </li>
+          <li>
+            <Link className="button" to="/add">
+              <PencilLine {...ICON} />
+              Type a reading
+            </Link>
+            <p>From your meter or sensor app. Forecasts start after 2 hours of readings.</p>
+          </li>
+          <li>
+            <SampleDataButton />
+            <p>48 hours from one person, ending now. Delete them any time in Settings.</p>
+          </li>
+        </ul>
+      </section>
     </div>
   );
 }

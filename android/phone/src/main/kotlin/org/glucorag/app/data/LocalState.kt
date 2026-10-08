@@ -6,6 +6,9 @@ import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import org.glucorag.app.forecast.AlertMemories
 import org.glucorag.shared.CgmReading
 import org.glucorag.shared.Snapshot
 import org.glucorag.shared.SnapshotCodec
@@ -21,8 +24,9 @@ data class SyncSummary(val state: SyncState, val at: Long, val since: Long, val 
 
 /**
  * What the phone knows locally, observed by the UI: the newest CGM reading received, the last
- * snapshot built (also what the watch shows), and how the last sync ended. Persisted in private
- * preferences so it survives process death; the app keeps one instance.
+ * snapshot built (also what the watch shows), how the last sync ended, About you, and the alert
+ * de-duplication state. Persisted in private preferences so it survives process death; the app
+ * keeps one instance.
  */
 class LocalState private constructor(private val prefs: SharedPreferences) {
     private val _reading = MutableStateFlow(loadReading())
@@ -33,6 +37,20 @@ class LocalState private constructor(private val prefs: SharedPreferences) {
 
     private val _sync = MutableStateFlow(loadSync())
     val sync: StateFlow<SyncSummary?> = _sync.asStateFlow()
+
+    private val _profile = MutableStateFlow(decode(KEY_PROFILE, LocalProfile.serializer()))
+    val profile: StateFlow<LocalProfile?> = _profile.asStateFlow()
+
+    /** Alert de-duplication state; only the forecast cycle reads and writes it. */
+    var alertMemory: AlertMemories
+        @Synchronized get() = decode(KEY_ALERTS, AlertMemories.serializer()) ?: AlertMemories()
+        @Synchronized set(value) = prefs.edit { putString(KEY_ALERTS, json.encodeToString(AlertMemories.serializer(), value)) }
+
+    @Synchronized
+    fun setProfile(p: LocalProfile) {
+        _profile.value = p
+        prefs.edit { putString(KEY_PROFILE, json.encodeToString(LocalProfile.serializer(), p)) }
+    }
 
     /** Keeps [r] if it is newer than the stored reading; returns whether it was. */
     @Synchronized
@@ -69,13 +87,34 @@ class LocalState private constructor(private val prefs: SharedPreferences) {
         }
     }
 
-    /** Forgets everything (sign-out). */
+    /** Forgets how syncing went (a new sign-in, or going on without a server). */
+    @Synchronized
+    fun clearSync() {
+        prefs.edit {
+            remove(KEY_SYNC_STATE)
+            remove(KEY_SYNC_AT)
+            remove(KEY_SYNC_SINCE)
+            remove(KEY_SYNC_REFUSED)
+        }
+        _sync.value = null
+    }
+
+    /** Forgets everything, About you included. */
     @Synchronized
     fun clear() {
         prefs.edit { clear() }
         _reading.value = null
         _snapshot.value = null
         _sync.value = null
+        _profile.value = null
+    }
+
+    private fun <T> decode(key: String, serializer: kotlinx.serialization.KSerializer<T>): T? = try {
+        prefs.getString(key, null)?.let { json.decodeFromString(serializer, it) }
+    } catch (e: SerializationException) {
+        null
+    } catch (e: IllegalArgumentException) {
+        null
     }
 
     private fun loadReading(): CgmReading? {
@@ -104,6 +143,9 @@ class LocalState private constructor(private val prefs: SharedPreferences) {
         private const val KEY_SYNC_AT = "sync_at"
         private const val KEY_SYNC_SINCE = "sync_since"
         private const val KEY_SYNC_REFUSED = "sync_refused"
+        private const val KEY_PROFILE = "profile"
+        private const val KEY_ALERTS = "alert_memory"
+        private val json = Json { ignoreUnknownKeys = true }
 
         @Volatile
         private var instance: LocalState? = null

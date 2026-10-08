@@ -204,3 +204,20 @@ def test_restart_rehydrates_buffers_profiles_and_policy(tmp_path):
     results = [restarted.ingest("p1", T0 + i * STEP, 120.0) for i in (6, 7)]
     assert [r.status for r in results] == ["warming_up", "predicted"]
     assert [a.type for a in results[1].alerts] == ["hypo"]  # persisted policy q0.10 applies
+
+
+@pytest.mark.parametrize(
+    ("upper", "latest", "alerted"),
+    [(189.0, 150.0, False), (190.0, 150.0, True), (230.0, 185.0, False)],
+)
+def test_hyper_alert_gate_leaves_status_at_risk(tmp_path, upper, latest, alerted):
+    # q0.75 = upper at every horizon: the status is at risk in all cases; the alert needs
+    # the 10 mg/dL margin and a latest reading still under 180.
+    levels = [100, 120, 140, 160, upper, upper + 10, upper + 20]
+    svc = _service(tmp_path, levels=levels, clock=ManualClock(T0 + 7 * STEP))
+    svc.register_profile(profile())
+    results = _feed(svc, 8, value=latest)
+    assert results[-1].status == "predicted"
+    assert [a.type for a in results[-1].alerts] == (["hyper"] if alerted else [])
+    row = svc.patient_status("p1")
+    assert row.status == "at_risk" and [f.type for f in row.risk] == ["hyper"]

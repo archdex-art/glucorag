@@ -70,4 +70,11 @@ class PairingTest {
         assertNull(normalizePairCode("IOIO-1010"))
         assertEquals("ABCD-EFGH", displayPairCode("ABCDEFGH"))
     }
+
+    /** A pairing link shows only "Pairing with <host>…": the address as people recognise it. */
+    @Test
+    fun hostShowsAddressAndPortOnly() {
+        assertEquals("192.168.1.20:8000", hostOf("http://192.168.1.20:8000"))
+        assertEquals("glucorag.example.ts.net", hostOf("https://glucorag.example.ts.net"))
+    }
 }

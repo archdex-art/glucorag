@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.0 — 2026-10-08
+- **Phone app 0.3.0: works without a server.** The EPS-TFT model runs on the phone (ONNX Runtime 1.21.1; `model.onnx` 1.2 MB in the APK), so forecasts, alerts, Today and the watch work offline and away from home.
+  - Connect offers **Use on this phone only** (no account; details and 7 days of readings stay on the phone) or **Connect to a GlucoRAG server**. Connecting later uploads the stored readings and sends About you if the account lacks it; signing out asks whether to keep the phone's data.
+  - The phone computes the forecast after every stored reading and alerts with the shared rule; server alerts are no longer notified on the phone. It also forecasts once on start, so Today recovers if the app was stopped between a reading and its forecast.
+  - Plain wording: "Heading below 70 in about 40 min (could reach 61)."; notifications "Low likely in about 25 min (could reach 66 mg/dL)."; watch long-text complication "Below 70 in 14m".
+  - Developer text removed from screens; the watch step links to the website's watch guide; Samsung-only steps only on Samsung phones; opening a pairing link shows only "Pairing with <host>…".
+  - Watch app 0.2.0: snapshot states trimmed to ok / warming_up / needs_setup (no "needs your server" state).
+- **Model export:** `glucorag-export-onnx` (extra `export`) writes `model.onnx`, `meta.json` and phone parity cases; ONNX matches PyTorch within 0.001 mg/dL, and the Kotlin engine matches Python within 0.001 mg/dL on the parity cases.
+- **Foundation-model benchmark** (research only, extra `bench`, `glucorag-bench`): `reports/benchmark/report.md`. At EPS-TFT's 120-min context every foundation model tested (Chronos-Bolt, Chronos-2, TimesFM 2.5/3.0) is significantly worse; with 128 h of history TimesFM 3.0 (non-commercial licence) beats EPS-TFT (60-min RMSE 19.88 vs 21.21) and Chronos-2 (Apache-2.0) ties it at 60 min. GluFormer and GlucoFM have no public forecasting weights.
+- **Fewer, more useful alerts** (server and phone, same rule). Spec: `glucorag/risk/detectors.py`.
+  - No high alert while the latest reading is already ≥ 180 mg/dL, and no low alert while it is already ≤ 70; Today already says "High now" / "Low now".
+  - A high alert needs the forecast (the selected upper quantile) to reach at least 190 mg/dL, 10 above the threshold, at some point in the hour; marginal highs no longer alert. Low alerts keep no margin.
+  - The status ("at risk") and the Today sentence are unchanged by this.
+- **Plain words on the website.** Today's sentence reads "198 mg/dL, steady. Likely about 185 in 30 min.", "Heading below 70 in about 25 min (could reach 68)." (when the forecast first crosses the limit, then the furthest it goes in the hour) or "In range for the next hour."; alerts read "Low likely in about 25 min (could reach 66 mg/dL)." Limits and values follow the person's unit. No more "upper edge of your forecast band" or quantile names on personal pages; staff pages keep the technical detail.
+- **Getting started.**
+  - Add your data (set-up step 2, empty Today) leads with one recommended way, **Live from your phone**, with **Get the phone app** and **Connect a phone**; importing a file, typing a reading and sample data follow as secondary choices. **Connect a phone** in set-up opens the pairing QR right there instead of sending you to Settings. Sample data is also on the Add data page.
+  - About you works BMI out from height and weight by default.
+  - The pairing panel no longer tells people to set `GLUCORAG_PUBLIC_URL`; it says "Your phone must be on the same Wi-Fi as this computer." The setting is explained on the staff System page and in the README.
+  - New help pages: **Get the phone app** (`/ui/help/phone`) and **Install the watch app** (`/ui/help/watch`, Galaxy Watch steps with developer options and `adb`, explained step by step), linked from the phone card and Connected devices.
+  - The server can offer the apps itself: `GLUCORAG_PHONE_APK` and `GLUCORAG_WATCH_APK` (settings `phone_apk_path`, `watch_apk_path`) point at the files, served at `/download/phone.apk` and `/download/watch.apk` as `application/vnd.android.package-archive`. Public `GET /downloads` says which are available; without them the help pages point to the GitHub releases.
+- **Accuracy monitoring (drift).**
+  - Each stored forecast is matched to the reading nearest its 30- and 60-minute target, within half the sampling interval (7.5 min for 15-min models; ties go to the earlier reading). Forecasts without such a reading are left out. New module `glucorag.evaluate.live`, `GlucoseService.accuracy()`.
+  - Staff `GET /model/accuracy`: rolling 7- and 30-day RMSE, MAE, median absolute error and coverage of the 50 % and 80 % bands with counts, for the cohort, each model version and each patient; a 30-day daily series with alert counts per type; and a warning when the served version's 7-day RMSE is more than 25 % above its evaluation's test RMSE (from 20 matched forecasts). The Model page shows it as a table, sparklines and warnings.
+  - Personal `GET /me/accuracy`: Today adds "Over the last 7 days, your 30-minute forecast was usually within N mg/dL" (median absolute error, in the person's unit), shown from 20 matched forecasts.
+  - Docs: model card "Monitoring in use"; risk register R7 (alert fatigue) updated and R21 (accuracy drift) added.
+
 ## 0.6.0 — 2026-10-08
 - **Pair a phone with a QR code.** No typing of server addresses or passwords on the phone.
   - Server: `POST /me/pairing` (browser session of a personal account) makes an 8-character code (`ABCD-EFGH`, no 0/O/1/I) valid for 10 minutes, with a `glucorag://pair?server=…&code=…` link and its QR code drawn as SVG on the server (new dependency: `segno`). `POST /auth/pair` (`{code, device}`) redeems it for the same one-year device token as `POST /auth/token`. Codes are single use, stored only as SHA-256, and a new code cancels the previous unused one; failed redemptions are throttled per client address (5 per 15 min). Deleting the account deletes its codes.

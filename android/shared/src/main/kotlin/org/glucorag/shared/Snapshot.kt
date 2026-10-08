@@ -8,7 +8,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * What the phone sends the watch (`v: 1`, < 2 KB). All times are epoch ms; glucose is mg/dL.
- * [forecast] and [risk] are null without a fresh forecast.
+ * [forecast] and [risk] are null without a fresh forecast. The phone makes the forecast itself.
  */
 @Serializable
 data class Snapshot(
@@ -37,11 +37,18 @@ data class Forecast(
     val high: List<Double>,
 )
 
-/** The earliest risk flag: [type] `hypo` | `hyper`, [severity] `high` | `medium` | `low`. */
+/**
+ * The earliest risk flag: [type] `hypo` | `hyper`, [severity] `high` | `medium` | `low`, [at] when
+ * the forecast first crosses 70 / 180 mg/dL, [mgdl] the furthest it could reach (null from phone
+ * app 0.2, which didn't send it).
+ */
 @Serializable
-data class Risk(val type: String, val at: Long, val severity: String)
+data class Risk(val type: String, val at: Long, val severity: String, val mgdl: Double? = null)
 
-/** [state] is one of `ok | unreachable | signed_out | needs_setup | warming_up`. */
+/**
+ * The phone's forecast state: `ok`, `warming_up` (under 2 h of readings) or `needs_setup` (no
+ * details entered yet). Field and key keep their name for the v1 format.
+ */
 @Serializable
 data class Server(val state: String, val since: Long)
 

@@ -40,6 +40,11 @@ function Groups({ s, health }: { s: ServiceStats; health: ReactNode }) {
             ['Service time', s.as_of.startsWith('0001-') ? 'No reading received yet' : formatApiTime(s.as_of)],
           ]}
         />
+        <p className="caption system-note">
+          Phones reach this server at the address in the pairing QR code. Without <code>GLUCORAG_PUBLIC_URL</code> that address
+          is guessed from this computer&apos;s network, and people are told their phone must be on the same Wi-Fi. Set it to the
+          address phones should use.
+        </p>
       </Group>
       <Group title="Throughput">
         <Facts items={Object.entries(s.counters).map(([k, v]) => [humanize(k), fmtInt(v)])} />

@@ -77,6 +77,26 @@ export function useModel() {
   });
 }
 
+/** Live accuracy moves with each matched reading; refreshed like the other staff pages. */
+export function useModelAccuracy(paused = false) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['model', 'accuracy'],
+    queryFn: ({ signal }) => api.modelAccuracy(signal),
+    refetchInterval: paused ? false : REFRESH_MS,
+  });
+}
+
+/** Public: which app files this server offers. */
+export function useDownloads() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['downloads'],
+    queryFn: ({ signal }) => api.downloads(signal),
+    staleTime: 5 * 60_000,
+  });
+}
+
 // ---------- A person's own data ----------
 
 /** Every query under this key belongs to the signed-in person; invalidate it after any write. */
@@ -119,6 +139,18 @@ export function useMeAlerts(limit: number, paused = false, enabled = true) {
     queryFn: ({ signal }) => api.myAlerts(limit, signal),
     enabled,
     refetchInterval: paused ? false : PERSON_REFRESH_MS,
+  });
+}
+
+export function useMeAccuracy(paused = false, enabled = true) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [ME_KEY, 'accuracy'],
+    queryFn: ({ signal }) => api.myAccuracy(signal),
+    enabled,
+    // A day's worth of forecasts barely moves it: refresh far less often than the status.
+    refetchInterval: paused ? false : 5 * 60_000,
+    retry: false,
   });
 }
 

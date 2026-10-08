@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
-from glucorag.api import auth, dashboard, me
+from glucorag.api import auth, dashboard, downloads, me
 from glucorag.api.routes import public, router
 from glucorag.api.settings import ApiSettings
 from glucorag.api.web import SecurityHeaders, mount_dashboard
@@ -71,6 +71,8 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         app.state.session_days = cfg.session_days
         app.state.import_max_days = cfg.import_max_days
         app.state.public_url = cfg.public_url
+        app.state.phone_apk_path = cfg.phone_apk_path
+        app.state.watch_apk_path = cfg.watch_apk_path
         app.state.model_path = resolve_artifact(cfg.model_path or "")
         app.state.sim_report = cfg.sim_report
         app.state.clock = cfg.clock
@@ -98,6 +100,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(dashboard.router)
     app.include_router(auth.router)
     app.include_router(me.router)
+    app.include_router(downloads.router)
     mount_dashboard(app, static_cfg.web_dir)
     return app
 

@@ -139,7 +139,7 @@ private fun NotInstalledCard(app: CgmApp) {
  * by itself after [ARRIVED_MS]. Installed apps are re-checked on every resume ([resumeTick]).
  */
 @Composable
-fun SourceScreen(unit: GlucoseUnit, simulated: Boolean, resumeTick: Int, onContinue: () -> Unit) {
+fun SourceScreen(unit: GlucoseUnit, simulated: Boolean, phoneOnly: Boolean, resumeTick: Int, onContinue: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val reading by LocalState.get(context).reading.collectAsState()
@@ -189,7 +189,10 @@ fun SourceScreen(unit: GlucoseUnit, simulated: Boolean, resumeTick: Int, onConti
             if (simulated) {
                 Hint("Simulated readings are on. Turn them off in Settings or on Today.")
             } else {
-                Hint("Try GlucoRAG with simulated readings: the last 3 hours at once, then one every 5 minutes. They upload to your account like real readings, so you see a forecast and alerts. Stop them any time.")
+                Hint(
+                    "Try GlucoRAG with simulated readings: the last 3 hours at once, then one every 5 minutes, so you see a forecast and alerts. " +
+                        (if (phoneOnly) "They stay on this phone." else "They upload to your account like real readings.") + " Stop them any time.",
+                )
                 OutlinedButton(onClick = { scope.launch { Simulation.start(context) } }) { Text("Try with simulated readings") }
             }
         }
@@ -215,7 +218,7 @@ fun SourceScreen(unit: GlucoseUnit, simulated: Boolean, resumeTick: Int, onConti
 
 private const val CHECKLIST_PREFS = "checklist"
 
-/** Opens Samsung's "Never sleeping apps" list; elsewhere, this app's settings. */
+/** Opens Samsung's "Never sleeping apps" list, or this app's settings if it can't. */
 private fun openNeverSleeping(context: Context) {
     val samsung = Intent("com.samsung.android.sm.ACTION_OPEN_CHECKABLE_LISTACTIVITY")
         .setPackage("com.samsung.android.lool")
@@ -248,9 +251,15 @@ private fun ChecklistItem(title: String, text: String, done: Boolean?, onConfirm
     }
 }
 
-/** The settings that decide whether readings keep flowing and alerts reach the watch. */
+/** Galaxy Wearable, "Never sleeping apps" and similar steps only exist on Samsung phones. */
+private val isSamsung: Boolean get() = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
+
+/**
+ * The settings that decide whether readings keep flowing and alerts reach the watch. [server]
+ * (when connected) hosts the watch-app guide.
+ */
 @Composable
-fun ChecklistScreen(onDone: () -> Unit, resumeTick: Int) {
+fun ChecklistScreen(server: String?, onDone: () -> Unit, resumeTick: Int) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(CHECKLIST_PREFS, Context.MODE_PRIVATE) }
     fun confirmed(key: String) = prefs.getBoolean(key, false)
@@ -270,8 +279,8 @@ fun ChecklistScreen(onDone: () -> Unit, resumeTick: Int) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("Keep readings flowing", style = MaterialTheme.typography.headlineSmall)
-        Hint("Phones put background apps to sleep. These settings keep uploads and alerts working.")
-        ChecklistItem("Notifications", "Lets GlucoRAG warn you when a low or high is predicted.", notifications, null) {
+        Hint("Phones put background apps to sleep. These settings keep forecasts and alerts working.")
+        ChecklistItem("Notifications", "Lets GlucoRAG warn you when a low or high is likely.", notifications, null) {
             if (!notifications) {
                 Button(onClick = {
                     val ask = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -284,27 +293,39 @@ fun ChecklistScreen(onDone: () -> Unit, resumeTick: Int) {
                 }) { Text("Allow notifications") }
             }
         }
-        ChecklistItem(
-            "Never sleeping apps",
-            "On Samsung phones, add GlucoRAG to Never sleeping apps so it keeps receiving readings.",
-            sleeping,
-            { sleeping = it; prefs.edit { putBoolean("never_sleeping", it) } },
-        ) { OutlinedButton(onClick = { openNeverSleeping(context) }) { Text("Open battery settings") } }
+        if (isSamsung) {
+            ChecklistItem(
+                "Never sleeping apps",
+                "Add GlucoRAG to Never sleeping apps so it keeps receiving readings.",
+                sleeping,
+                { sleeping = it; prefs.edit { putBoolean("never_sleeping", it) } },
+            ) { OutlinedButton(onClick = { openNeverSleeping(context) }) { Text("Open battery settings") } }
+        }
         ChecklistItem("Battery: Unrestricted", "In this app's battery settings, choose Unrestricted.", battery, null) {
             if (!battery) OutlinedButton(onClick = { openAppDetails(context) }) { Text("Open app settings") }
         }
         ChecklistItem(
             "Watch notifications",
-            "In Galaxy Wearable, open Notifications, then App notifications, and make sure GlucoRAG is on. Turn on Show while using phone so alerts reach the watch while you use the phone.",
+            if (isSamsung) {
+                "In Galaxy Wearable, open Notifications, then App notifications, and make sure GlucoRAG is on. Turn on Show while using phone so alerts reach the watch while you use the phone."
+            } else {
+                "Alerts on this phone also appear on a paired watch. In your watch's phone app, make sure notifications from GlucoRAG are on."
+            },
             wearable,
             { wearable = it; prefs.edit { putBoolean("wearable_notifications", it) } },
         ) { OutlinedButton(onClick = { AlertNotifier(context).test() }) { Text("Send test alert") } }
         ChecklistItem(
-            "Install on watch",
-            "Install the GlucoRAG watch app from your computer (see the setup guide in android/README.md), then add the GlucoRAG complications to your watch face.",
+            "Install GlucoRAG on your watch",
+            if (server != null) {
+                "The GlucoRAG website shows how to install the watch app. Then add the GlucoRAG complications to your watch face."
+            } else {
+                "The watch app is installed from a computer on the same Wi-Fi as your watch: on the watch, turn on Developer options and Wireless debugging, then install the GlucoRAG watch app from the computer. Open it once on the watch, then add the GlucoRAG complications to your watch face."
+            },
             watch,
             { watch = it; prefs.edit { putBoolean("watch_installed", it) } },
-        ) {}
+        ) {
+            if (server != null) OutlinedButton(onClick = { openUrl(context, "$server/ui/help/watch") }) { Text("Open the watch guide") }
+        }
         Button(onClick = onDone) { Text("Done") }
         ResearchNotice()
     }

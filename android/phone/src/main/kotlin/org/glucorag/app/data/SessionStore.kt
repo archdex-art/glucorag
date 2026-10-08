@@ -18,21 +18,20 @@ import kotlinx.coroutines.flow.map
 import java.io.IOException
 
 /**
- * The signed-in phone's state. [server] is a `checkServerUrl` Ok base; [lastAlertId] is the
- * newest alert already handled (null until the first sync after sign-in); [lastQueuedT] is the
- * newest reading queued for upload, epoch ms. [unit] is the account's glucose unit label as last
- * seen on the server; [notifiedAlerts] holds the `type@t_raised` keys of the most recent alert
- * notifications, oldest first, so an alert the server re-raises with a new id doesn't buzz twice.
- * [simulated]: the phone feeds itself simulated readings (SimulatedFeed) until turned off.
+ * How the phone is set up. [localOnly]: used on this phone only, without a server. Otherwise
+ * [server] is a `checkServerUrl` Ok base and [token] the device token while signed in.
+ * [lastStoredT] is the newest reading kept (and queued for upload when a server is set), epoch
+ * ms. [unit] is the glucose unit label: the account's as last seen on the server, or the one
+ * chosen in About you on this phone only. [simulated]: the phone feeds itself simulated readings
+ * (SimulatedFeed) until turned off.
  */
 data class Session(
     val server: String? = null,
     val token: String? = null,
     val email: String? = null,
-    val lastAlertId: Long? = null,
-    val lastQueuedT: Long? = null,
+    val localOnly: Boolean = false,
+    val lastStoredT: Long? = null,
     val unit: String? = null,
-    val notifiedAlerts: List<String> = emptyList(),
     val simulated: Boolean = false,
 )
 
@@ -61,10 +60,9 @@ class SessionStore(private val store: DataStore<Preferences>) {
             prefs.put(SERVER, next.server)
             prefs.put(TOKEN, next.token)
             prefs.put(EMAIL, next.email)
-            prefs.put(LAST_ALERT_ID, next.lastAlertId)
-            prefs.put(LAST_QUEUED_T, next.lastQueuedT)
+            prefs.put(LOCAL_ONLY, next.localOnly.takeIf { it })
+            prefs.put(LAST_STORED_T, next.lastStoredT)
             prefs.put(UNIT, next.unit)
-            prefs.put(NOTIFIED_ALERTS, next.notifiedAlerts.takeIf { it.isNotEmpty() }?.joinToString("\n"))
             prefs.put(SIMULATED, next.simulated.takeIf { it })
         }
         return next
@@ -83,20 +81,18 @@ class SessionStore(private val store: DataStore<Preferences>) {
         val SERVER = stringPreferencesKey("server")
         val TOKEN = stringPreferencesKey("token")
         val EMAIL = stringPreferencesKey("email")
-        val LAST_ALERT_ID = longPreferencesKey("last_alert_id")
-        val LAST_QUEUED_T = longPreferencesKey("last_queued_t")
+        val LOCAL_ONLY = booleanPreferencesKey("local_only")
+        val LAST_STORED_T = longPreferencesKey("last_stored_t")
         val UNIT = stringPreferencesKey("unit")
-        val NOTIFIED_ALERTS = stringPreferencesKey("notified_alerts")
         val SIMULATED = booleanPreferencesKey("simulated")
 
         fun Preferences.toSession() = Session(
             server = this[SERVER],
             token = this[TOKEN],
             email = this[EMAIL],
-            lastAlertId = this[LAST_ALERT_ID],
-            lastQueuedT = this[LAST_QUEUED_T],
+            localOnly = this[LOCAL_ONLY] ?: false,
+            lastStoredT = this[LAST_STORED_T],
             unit = this[UNIT],
-            notifiedAlerts = this[NOTIFIED_ALERTS]?.split("\n")?.filter { it.isNotEmpty() } ?: emptyList(),
             simulated = this[SIMULATED] ?: false,
         )
 

@@ -52,73 +52,21 @@ data class TokenOut(
     val account: AccountOut,
 )
 
-/** `GET /me/status`. [fresh]: the latest forecast was made from the last reading. */
+/**
+ * `GET /me`, reduced to the profile: the four facts the model reads and the alert quantiles the
+ * account's sensitivity selects; null until the account has one.
+ */
 @Serializable
-data class StatusDto(
-    val status: StatusRow,
-    val prediction: PredictionDto? = null,
-    val fresh: Boolean,
-)
-
-/** The patient's status row; [status] `at_risk | data_gap | warming_up | ok | no_data`. */
-@Serializable
-data class StatusRow(
-    val status: String,
-    @SerialName("last_reading") val lastReading: EpochMs? = null,
-    @SerialName("last_glucose_mg_dl") val lastGlucoseMgDl: Double? = null,
-    /** mg/dL per minute; null without a pair of readings one interval apart. */
-    @SerialName("trend_mg_dl_per_min") val trendMgDlPerMin: Double? = null,
-    val risk: List<RiskFlagDto> = emptyList(),
-    /** The alert band of the latest fresh forecast; null otherwise. */
-    val forecast: ForecastBandDto? = null,
-)
-
-/** [type] `hypo` | `hyper`; [severity] `low` | `medium` | `high`. */
-@Serializable
-data class RiskFlagDto(
-    val type: String,
-    @SerialName("horizon_min") val horizonMin: Int,
-    val severity: String,
-)
-
-/** The forecast reduced to the patient's alert band; [horizons] in minutes after [t0]. */
-@Serializable
-data class ForecastBandDto(
-    val t0: EpochMs,
-    val horizons: List<Int>,
-    val low: List<Double>,
-    val median: List<Double>,
-    val high: List<Double>,
-)
-
-/** The full latest forecast; [values] is `[horizon index][quantile index]`, mg/dL. */
-@Serializable
-data class PredictionDto(
-    val t0: EpochMs,
-    val horizons: List<Int>,
-    val quantiles: List<Double>,
-    val values: List<List<Double>>,
-)
-
-/** One stored reading from `GET /me/history`. */
-@Serializable
-data class ReadingDto(
-    @SerialName("timestamp") val t: EpochMs,
-    @SerialName("glucose_mg_dl") val mgdl: Double,
-)
+data class MeOut(val profile: ProfileOut? = null)
 
 @Serializable
-internal data class HistoryDto(val readings: List<ReadingDto>)
-
-/** `GET /me/alerts?after_id=`; [type] `hypo | hyper | data_gap`. */
-@Serializable
-data class AlertDto(
-    val id: Long,
-    val type: String,
-    val severity: String? = null,
-    @SerialName("horizon_min") val horizonMin: Int? = null,
-    @SerialName("t_raised") val tRaised: EpochMs,
-    val t0: EpochMs? = null,
+data class ProfileOut(
+    val age: Int,
+    val gender: String,
+    val bmi: Double,
+    @SerialName("diabetes_type") val diabetesType: String,
+    @SerialName("hypo_quantile") val hypoQuantile: Double,
+    @SerialName("hyper_quantile") val hyperQuantile: Double,
 )
 
 /** `POST /me/readings/batch`: re-sent readings count as [alreadyPresent]. */

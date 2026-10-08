@@ -7,6 +7,18 @@ export function quantileIndex(quantiles: readonly number[], q: number): number {
   return quantiles.findIndex((level) => Math.abs(level - q) < EPS);
 }
 
+/**
+ * A forecast level in a person's words: 0.5 is "Most likely", 0.25 "1 in 4 chance below",
+ * 0.9 "1 in 10 chance above". A chance that is no "1 in N" reads as a percentage.
+ */
+export function chanceLabel(q: number): string {
+  if (Math.abs(q - 0.5) < EPS) return 'Most likely';
+  const side = q < 0.5 ? 'below' : 'above';
+  const chance = q < 0.5 ? q : 1 - q;
+  const n = Math.round(1 / chance);
+  return Math.abs(1 / n - chance) < 1e-3 ? `1 in ${n} chance ${side}` : `${Math.round(chance * 100)}% chance ${side}`;
+}
+
 /** Prediction with quantile levels sorted ascending (columns permuted) and horizons sorted. */
 export interface SortedForecast {
   t0: WallTime;

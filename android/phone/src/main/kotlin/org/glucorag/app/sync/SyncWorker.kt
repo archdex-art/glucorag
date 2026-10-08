@@ -17,9 +17,11 @@ import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.tasks.await
 import org.glucorag.app.R
+import org.glucorag.app.data.LocalDb
 import org.glucorag.app.data.LocalState
-import org.glucorag.app.data.QueueDb
 import org.glucorag.app.data.QueuedReading
+import org.glucorag.app.data.StoredReading
+import org.glucorag.app.forecast.OnDevice
 import org.glucorag.app.data.SessionStore
 import org.glucorag.app.data.SyncState
 import org.glucorag.app.net.GlucoApi
@@ -38,27 +40,36 @@ class SnapshotPublisher(private val context: Context) {
     }
 }
 
-/** From a received CGM reading to the queue, the watch and the upload. */
+/** From a received CGM reading to the phone's store, the forecast, the watch and the upload. */
 object Pipeline {
+    /** [receiveAll] for one reading (a CGM app's broadcast). */
+    suspend fun receive(context: Context, reading: CgmReading, nowMs: Long = System.currentTimeMillis()) =
+        receiveAll(context, listOf(reading), nowMs)
+
     /**
-     * Records [reading] as the phone's newest value. If it is due for upload (≈ every 5 min):
-     * queues it, shows it on the watch right away (the server may be out of reach), and starts a
-     * sync when signed in. Readings are queued whenever a server is set up, so readings taken while
-     * the token was revoked upload after the next sign-in.
+     * Records each of [readings] (oldest first) as the phone's newest value. Those due for keeping
+     * (≈ every 5 min) are stored, and queued for upload whenever a server is set up and not left
+     * for this phone only (so readings taken while the token was revoked upload after the next
+     * sign-in); then one forecast runs
+     * on the phone and, when signed in, a sync starts.
      */
-    suspend fun receive(context: Context, reading: CgmReading, nowMs: Long = System.currentTimeMillis()) {
+    suspend fun receiveAll(context: Context, readings: List<CgmReading>, nowMs: Long = System.currentTimeMillis()) {
         val app = context.applicationContext
         val local = LocalState.get(app)
-        local.offerReading(reading)
         val store = SessionStore(app)
         val session = store.current()
-        if (session.server == null || !Thinner(session.lastQueuedT).shouldQueue(reading.t)) return
-        QueueDb.get(app).queue().insert(QueuedReading(reading.t, reading.mgdl, reading.from))
-        store.update { it.copy(lastQueuedT = reading.t) }
-        local.snapshot.value?.let { last ->
-            val updated = withReading(last, reading, nowMs)
-            if (updated !== last) publishQuietly(app, local, updated)
+        val thinner = Thinner(session.lastStoredT)
+        val kept = readings.filter { r ->
+            local.offerReading(r)
+            thinner.shouldKeep(r.t)
         }
+        if (kept.isEmpty()) return
+        val db = LocalDb.get(app)
+        db.readings().insert(kept.map { StoredReading(it.t, it.mgdl, it.from) })
+        db.readings().deleteBefore(nowMs - StoredReading.KEEP_MS)
+        if (session.server != null && !session.localOnly) db.queue().insertAll(kept.map { QueuedReading(it.t, it.mgdl, it.from) })
+        store.update { it.copy(lastStoredT = thinner.lastKeptT) }
+        OnDevice.run(app, nowMs)
         if (session.token != null) SyncWorker.enqueue(app)
     }
 
@@ -90,24 +101,22 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val local = LocalState.get(app)
         val engine = SyncEngine(
             api = api,
-            queue = QueueDb.get(app).queue(),
+            queue = LocalDb.get(app).queue(),
             store = store,
-            publish = { s ->
-                local.setSnapshot(s)
-                SnapshotPublisher(app).publish(s)
-            },
-            notify = AlertNotifier(app)::notify,
-            clock = System::currentTimeMillis,
-            latestReading = { local.reading.value },
-            lastSnapshot = { local.snapshot.value },
+            localProfile = { local.profile.value },
+            saveProfile = local::setProfile,
         )
         val outcome = engine.run()
         val now = System.currentTimeMillis()
         when (outcome) {
-            is SyncOutcome.Synced -> local.recordSync(SyncState.SYNCED, now, outcome.refused)
+            is SyncOutcome.Synced -> {
+                local.recordSync(SyncState.SYNCED, now, outcome.refused)
+                // About you changed on the website: forecast again with it.
+                if (outcome.profileChanged) OnDevice.run(app, now)
+            }
             is SyncOutcome.Retry -> local.recordSync(SyncState.UNREACHABLE, now, 0)
-            is SyncOutcome.NeedsSetup -> local.recordSync(SyncState.NEEDS_SETUP, now, 0)
-            is SyncOutcome.SignedOut -> {
+            SyncOutcome.NeedsSetup -> local.recordSync(SyncState.NEEDS_SETUP, now, 0)
+            SyncOutcome.SignedOut -> {
                 local.recordSync(SyncState.SIGNED_OUT, now, 0)
                 // The server revoked this device: stop retrying until the user signs in again.
                 store.update { it.copy(token = null) }

@@ -159,7 +159,8 @@
  "risk": {
   "type": "hyper",
   "at": 1791386695000,
-  "severity": "high"
+  "severity": "high",
+  "mgdl": 336.0
  },
  "server": {
   "state": "ok",

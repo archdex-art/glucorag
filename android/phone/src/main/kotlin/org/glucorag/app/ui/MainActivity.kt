@@ -21,10 +21,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
+import org.glucorag.app.forecast.OnDevice
 import org.glucorag.app.data.LocalState
 import org.glucorag.app.data.SessionStore
 import org.glucorag.shared.GlucoseUnit
@@ -43,6 +47,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // After recreation, the link in the intent was already taken (or is kept in the saved state).
         pairLink.value = if (savedInstanceState == null) pairLinkOf(intent) else savedInstanceState.getString(KEY_PAIR_LINK)
+        // A forecast normally follows each stored reading; if the process died in between (or the
+        // phone restarted), recompute from the stored readings so Today isn't left waiting.
+        if (savedInstanceState == null) {
+            val app = applicationContext
+            lifecycleScope.launch { OnDevice.run(app) }
+        }
         setContent {
             GlucoTheme {
                 Surface(Modifier.fillMaxSize()) {
@@ -77,8 +87,9 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Navigation: no token → Connect; no reading yet → Source; then Today. A pairing link goes to
- * Connect, which redeems it; when another account is signed in, the person confirms first.
+ * Navigation: not set up → Connect (this phone only, or a server); this phone only without About
+ * you → About you; no reading yet → Source; then Today. A pairing link goes to Connect, which
+ * redeems it; when another account is signed in, the person confirms first.
  */
 @Composable
 private fun App(resumeTick: Int, pairLink: String?, onPairLinkTaken: () -> Unit) {
@@ -88,23 +99,29 @@ private fun App(resumeTick: Int, pairLink: String?, onPairLinkTaken: () -> Unit)
     val local = LocalState.get(context)
     val reading by local.reading.collectAsState()
     val sync by local.sync.collectAsState()
+    val profile by local.profile.collectAsState()
     // Saveable: the screen survives rotation and dark-mode switches (activity recreation).
     var screen by rememberSaveable { mutableStateOf<Screen?>(null) }
     // The confirmed link Connect should redeem; kept as text so it survives recreation.
     var autoPair by rememberSaveable { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     val s = session ?: return
     val current = screen ?: when {
-        s.token == null && sync == null -> Screen.CONNECT
-        s.token == null -> Screen.TODAY // revoked on the server: Today says so and offers sign-in
+        // A token revoked on the server leaves sync state behind: Today says so and offers sign-in.
+        s.token == null && !s.localOnly && sync == null -> Screen.CONNECT
+        s.localOnly && profile == null -> Screen.PROFILE
         reading == null -> Screen.SOURCE
         else -> Screen.TODAY
     }
     val unit = s.unit?.let(GlucoseUnit::parse) ?: GlucoseUnit.MG_DL
+    val setUp = s.token != null || s.localOnly || sync != null
 
     BackHandler(enabled = current == Screen.SETTINGS || current == Screen.CHECKLIST) { screen = Screen.TODAY }
-    // Connect opened by a pairing link while signed in: back returns to the signed-in app.
-    BackHandler(enabled = current == Screen.CONNECT && s.token != null) { screen = Screen.TODAY }
+    // Connect opened from Settings or by a pairing link, or About you opened to edit: back returns.
+    BackHandler(enabled = (current == Screen.CONNECT && setUp) || (current == Screen.PROFILE && profile != null)) {
+        screen = Screen.TODAY
+    }
 
     fun pairNow(link: String) {
         autoPair = link
@@ -118,22 +135,30 @@ private fun App(resumeTick: Int, pairLink: String?, onPairLinkTaken: () -> Unit)
                 initialServer = s.server,
                 autoPair = autoPair?.let(::parsePairLink) as? PairLink.Ok,
                 onAutoPairTaken = { autoPair = null },
-            ) { hasProfile -> screen = if (hasProfile) Screen.SOURCE else Screen.PROFILE }
-            Screen.PROFILE -> ProfileScreen { screen = Screen.SOURCE }
-            Screen.SOURCE -> SourceScreen(unit, s.simulated, resumeTick) { screen = Screen.CHECKLIST }
-            Screen.CHECKLIST -> ChecklistScreen(onDone = { screen = Screen.TODAY }, resumeTick = resumeTick)
+                // Offered until the phone is set up; from Settings the person came to connect.
+                onUseOnPhone = if (setUp) null else {
+                    { scope.launch { screen = if (Account.useOnThisPhone(context)) Screen.SOURCE else Screen.PROFILE } }
+                },
+            ) { hasProfile -> screen = if (!hasProfile) Screen.PROFILE else if (reading == null) Screen.SOURCE else Screen.TODAY }
+            Screen.PROFILE -> ProfileScreen(profile, s.unit, s.token == null) {
+                screen = if (reading == null) Screen.SOURCE else Screen.TODAY
+            }
+            Screen.SOURCE -> SourceScreen(unit, s.simulated, s.localOnly || s.server == null, resumeTick) { screen = Screen.CHECKLIST }
+            Screen.CHECKLIST -> ChecklistScreen(s.server.takeUnless { s.localOnly }, onDone = { screen = Screen.TODAY }, resumeTick = resumeTick)
             Screen.TODAY -> TodayScreen(
-                s.server,
-                s.simulated,
+                s,
                 onSettings = { screen = Screen.SETTINGS },
                 onSignIn = { screen = Screen.CONNECT },
                 onEnterDetails = { screen = Screen.PROFILE },
             )
             Screen.SETTINGS -> SettingsScreen(
                 s,
+                profile,
                 onBack = { screen = Screen.TODAY },
                 onChangeSource = { screen = Screen.SOURCE },
-                onSignedOut = { screen = Screen.CONNECT },
+                onEditDetails = { screen = Screen.PROFILE },
+                onConnect = { screen = Screen.CONNECT },
+                onSignedOut = { kept -> screen = if (kept) Screen.TODAY else Screen.CONNECT },
             )
         }
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MeStatus, PatientRisk, RiskFlag, StoredPrediction } from '../api/types';
-import { ENDED_AFTER_MIN, noForecastDetail, personStatus, riskDetail } from './personStatus';
+import { ENDED_AFTER_MIN, noForecastDetail, personStatus } from './personStatus';
 
 const MODEL = {
   version: 'v1',
@@ -67,120 +67,150 @@ function status(row: Partial<PatientRisk>, over: Partial<MeStatus> = {}): MeStat
   };
 }
 
+const BAND = { t0: LAST, horizons: [15, 30, 45, 60], low_quantile: 0.25, high_quantile: 0.75, low: [150, 160, 165, 170], median: [170, 185, 190, 192], high: [190, 200, 210, 215] };
+
+const say = (s: MeStatus, unit: 'mg/dL' | 'mmol/L' = 'mg/dL') => personStatus(s, unit);
+
 describe('the status sentence', () => {
-  it('names a predicted low or high with its timing', () => {
-    expect(personStatus(status({ status: 'at_risk', risk: [flag({ horizon_min: 25 })] })).sentence).toBe('Low predicted in 25 min');
-    const high = personStatus(status({ status: 'at_risk', risk: [flag({ type: 'hyper', horizon_min: 15, value_mg_dl: 190 })] }));
-    expect(high).toMatchObject({ kind: 'high', sentence: 'High predicted in 15 min', urgent: false });
+  it('says which limit a predicted low or high crosses, when, and how far it could go', () => {
+    const low = say(status({ status: 'at_risk', risk: [flag({ horizon_min: 25, value_mg_dl: 69, extreme_mg_dl: 68 })] }));
+    expect(low).toMatchObject({ kind: 'low', sentence: 'Heading below 70 in about 25 min (could reach 68).', details: [] });
+    const high = say(status({ status: 'at_risk', risk: [flag({ type: 'hyper', horizon_min: 15, value_mg_dl: 190, extreme_mg_dl: 205 })] }));
+    expect(high).toMatchObject({ kind: 'high', sentence: 'Heading above 180 in about 15 min (could reach 205).', urgent: false });
+    const mmol = say(status({ status: 'at_risk', risk: [flag({ horizon_min: 25, extreme_mg_dl: 68 })] }), 'mmol/L');
+    expect(mmol.sentence).toBe('Heading below 3.9 in about 25 min (could reach 3.8).');
+    const mmolHigh = say(status({ status: 'at_risk', risk: [flag({ type: 'hyper', horizon_min: 45, extreme_mg_dl: 205 })] }), 'mmol/L');
+    expect(mmolHigh.sentence).toBe('Heading above 10.0 in about 45 min (could reach 11.4).');
   });
 
-  it('leads with the earliest flag; a low wins a tie; high severity is urgent', () => {
-    const both = personStatus(
+  it('says "soon" without a positive horizon and drops the brackets without a value', () => {
+    const now = say(status({ status: 'at_risk', risk: [flag({ horizon_min: 0, extreme_mg_dl: 66 })] }));
+    expect(now.sentence).toBe('Heading below 70 soon (could reach 66).');
+    const noValue = say(status({ status: 'at_risk', risk: [flag({ type: 'hyper', horizon_min: 15, extreme_mg_dl: Number.NaN })] }));
+    expect(noValue.sentence).toBe('Heading above 180 in about 15 min.');
+  });
+
+  it('leads with the earliest flag; a low wins a tie; high severity is urgent; the rest follow below', () => {
+    const both = say(
       status({
         status: 'at_risk',
-        risk: [flag({ type: 'hyper', horizon_min: 45 }), flag({ type: 'hypo', horizon_min: 15, severity: 'high' })],
+        risk: [flag({ type: 'hyper', horizon_min: 45, extreme_mg_dl: 210 }), flag({ type: 'hypo', horizon_min: 15, severity: 'high' })],
       }),
     );
-    expect(both).toMatchObject({ kind: 'low', sentence: 'Low predicted in 15 min', urgent: true });
+    expect(both).toMatchObject({
+      kind: 'low',
+      sentence: 'Heading below 70 in about 15 min (could reach 64).',
+      details: ['High likely in about 45 min (could reach 210 mg/dL).'],
+      urgent: true,
+    });
     expect(both.flags.map((f) => f.type)).toEqual(['hypo', 'hyper']);
-    const tie = personStatus(status({ status: 'at_risk', risk: [flag({ type: 'hyper', horizon_min: 30 }), flag({ horizon_min: 30 })] }));
+    const tie = say(status({ status: 'at_risk', risk: [flag({ type: 'hyper', horizon_min: 30 }), flag({ horizon_min: 30 })] }));
     expect(tie.kind).toBe('low');
   });
 
-  it('says "now" when the current value is already past the threshold (inclusive)', () => {
-    const hyper = flag({ type: 'hyper', horizon_min: 15, value_mg_dl: 196 });
-    const at = (v: number, f: RiskFlag) => personStatus(status({ status: 'at_risk', risk: [f], last_glucose_mg_dl: v })).sentence;
-    expect(at(198, hyper)).toBe('High now');
-    expect(at(180, hyper)).toBe('High now');
-    expect(at(179, hyper)).toBe('High predicted in 15 min');
-    expect(at(70, flag({ horizon_min: 30 }))).toBe('Low now');
-    expect(at(71, flag({ horizon_min: 30 }))).toBe('Low predicted in 30 min');
+  it('leads with the reading when it is already past the limit (inclusive)', () => {
+    const hyper = flag({ type: 'hyper', horizon_min: 15, value_mg_dl: 196, extreme_mg_dl: 230 });
+    const at = (v: number, f: RiskFlag) =>
+      say(status({ status: 'at_risk', risk: [f], last_glucose_mg_dl: v, trend_mg_dl_per_min: 1.5, forecast: BAND }));
+    expect(at(198, hyper)).toMatchObject({
+      kind: 'high',
+      sentence: '198 mg/dL, rising. Likely about 185 in 30 min.',
+      details: ['Could go as high as 230 mg/dL within the hour.'],
+    });
+    expect(at(180, hyper).sentence).toBe('180 mg/dL, rising. Likely about 185 in 30 min.');
+    expect(at(179, hyper).sentence).toBe('Heading above 180 in about 15 min (could reach 230).');
+    expect(at(70, flag({ horizon_min: 30 })).details).toEqual(['Could go as low as 64 mg/dL within the hour.']);
+    expect(at(71, flag({ horizon_min: 30 })).sentence).toBe('Heading below 70 in about 30 min (could reach 64).');
   });
 
-  it('never says "in range" beside an out-of-range reading when only the band is in range', () => {
-    const band = { t0: LAST, horizons: [15, 30, 45, 60], low_quantile: 0.25, high_quantile: 0.75, low: [150], median: [165], high: [178] };
-    const ok = (v: number) => personStatus(status({ status: 'ok', last_glucose_mg_dl: v, forecast: band }));
-    expect(ok(184)).toMatchObject({ kind: 'high', sentence: 'High now, back in range within 15 min' });
+  it('never says "in range" beside an out-of-range reading when no low or high is likely', () => {
+    const ok = (v: number) => say(status({ status: 'ok', last_glucose_mg_dl: v, forecast: BAND }));
+    expect(ok(198)).toMatchObject({ kind: 'high', sentence: '198 mg/dL, steady. Likely about 185 in 30 min.', details: [] });
     expect(ok(180)).toMatchObject({ kind: 'high' }); // inclusive, as the alert rule
-    expect(ok(179)).toMatchObject({ kind: 'in_range', sentence: 'In range for the next hour' });
-    expect(ok(70)).toMatchObject({ kind: 'low', sentence: 'Low now, back in range within 15 min' });
+    expect(ok(179)).toMatchObject({ kind: 'in_range', sentence: 'In range for the next hour.' });
+    expect(ok(70)).toMatchObject({ kind: 'low', sentence: '70 mg/dL, steady. Likely about 185 in 30 min.' });
+    const noTrend = say(status({ status: 'ok', last_glucose_mg_dl: 198, trend_mg_dl_per_min: null, forecast: null }), 'mmol/L');
+    expect(noTrend.sentence).toBe('11.0 mmol/L.');
   });
 
   it('covers in range, collecting and no readings', () => {
-    expect(personStatus(status({ status: 'ok' })).sentence).toBe('In range for the next hour');
-    expect(personStatus(status({ status: 'warming_up' }, { fresh: false, prediction: null }))).toMatchObject({
-      kind: 'collecting',
-      sentence: 'Collecting readings',
+    expect(say(status({ status: 'ok' }))).toMatchObject({
+      sentence: 'In range for the next hour.',
+      details: ['Likely to stay between 70 and 180 mg/dL.'],
     });
-    expect(personStatus(status({ status: 'no_data', last_reading: null }, { prediction: null, fresh: false }))).toMatchObject({
+    expect(say(status({ status: 'ok' }), 'mmol/L').details).toEqual(['Likely to stay between 3.9 and 10.0 mmol/L.']);
+    expect(say(status({ status: 'warming_up' }, { fresh: false, prediction: null }))).toMatchObject({
+      kind: 'collecting',
+      sentence: 'Collecting readings.',
+    });
+    expect(say(status({ status: 'no_data', last_reading: null }, { prediction: null, fresh: false }))).toMatchObject({
       kind: 'no_readings',
-      sentence: 'No readings yet',
+      sentence: 'No readings yet.',
     });
   });
 
   it('says there is no current forecast for stale, old and gapped data', () => {
-    const stale = personStatus(status({ status: 'data_gap', stale: true, minutes_since_last: 180 }, { fresh: false }));
-    expect(stale).toMatchObject({ kind: 'stale', sentence: 'No current forecast', pastForecast: true });
-    const ended = personStatus(status({ status: 'data_gap', stale: true, minutes_since_last: ENDED_AFTER_MIN }, { fresh: false }));
+    const stale = say(status({ status: 'data_gap', stale: true, minutes_since_last: 180 }, { fresh: false }));
+    expect(stale).toMatchObject({ kind: 'stale', sentence: 'No current forecast.', pastForecast: true });
+    const ended = say(status({ status: 'data_gap', stale: true, minutes_since_last: ENDED_AFTER_MIN }, { fresh: false }));
     expect(ended.kind).toBe('ended');
-    const gap = personStatus(status({ status: 'data_gap', stale: false }, { fresh: false, prediction: null }));
-    expect(gap).toMatchObject({ kind: 'gap', sentence: 'No current forecast', pastForecast: false });
+    const gap = say(status({ status: 'data_gap', stale: false }, { fresh: false, prediction: null }));
+    expect(gap).toMatchObject({ kind: 'gap', sentence: 'No current forecast.', pastForecast: false });
   });
 
   it('marks the stored forecast as past only when it was made from the latest reading', () => {
     const older = { ...PREDICTION, t0: '2026-10-06T11:00:00+00:00' };
-    expect(personStatus(status({ status: 'data_gap', stale: true, minutes_since_last: 200 }, { fresh: false, prediction: older })).pastForecast).toBe(false);
-    expect(personStatus(status({ status: 'ok' })).pastForecast).toBe(false);
+    expect(say(status({ status: 'data_gap', stale: true, minutes_since_last: 200 }, { fresh: false, prediction: older })).pastForecast).toBe(false);
+    expect(say(status({ status: 'ok' })).pastForecast).toBe(false);
+  });
+
+  it('never uses forecast-band or quantile words', () => {
+    const cases = [
+      status({ status: 'at_risk', risk: [flag({}), flag({ type: 'hyper', horizon_min: 45 })] }),
+      status({ status: 'at_risk', risk: [flag({})], last_glucose_mg_dl: 60, forecast: BAND }),
+      status({ status: 'ok', last_glucose_mg_dl: 200, forecast: BAND }),
+      status({ status: 'ok' }),
+    ];
+    for (const s of cases) {
+      const p = say(s);
+      expect([p.sentence, ...p.details].join(' ')).not.toMatch(/band|quantile|q0\.|edge/i);
+    }
   });
 });
 
 describe('detail sentences', () => {
-  it('phrases a low as the lower edge of the band, in the reader’s unit', () => {
-    const f = flag({ value_mg_dl: 64, extreme_mg_dl: 64, horizon_min: 25 });
-    expect(riskDetail(f, 'mg/dL', MODEL)).toBe('The lower edge of your forecast band reaches 64 mg/dL in 25 min, 6 below 70.');
-    expect(riskDetail(f, 'mmol/L', MODEL)).toBe('The lower edge of your forecast band reaches 3.6 mmol/L in 25 min, 0.3 below 3.9.');
-  });
-
-  it('adds how far it goes when the extreme lies beyond the first crossing', () => {
-    const f = flag({ type: 'hyper', value_mg_dl: 190, extreme_mg_dl: 230, horizon_min: 15, margin_mg_dl: 50 });
-    expect(riskDetail(f, 'mg/dL', MODEL)).toBe(
-      'The upper edge of your forecast band reaches 190 mg/dL in 15 min, 10 above 180. It goes as high as 230 mg/dL within the hour.',
-    );
-    expect(riskDetail(flag({ value_mg_dl: 70 }), 'mg/dL', MODEL)).toContain('reaches 70 mg/dL in 30 min, at 70.');
-  });
-
   it('explains warming up with readings and time still needed', () => {
     const s = status({ status: 'warming_up' }, { fresh: false, prediction: null });
-    const text = noForecastDetail(personStatus(s), s, { needed: 3, minutes: 45, runStart: 0, afterGap: false });
+    const text = noForecastDetail(say(s), s, { needed: 3, minutes: 45, runStart: 0, afterGap: false });
     expect(text).toBe('Forecasts start once there are 2 hours of readings. 3 more readings needed, about 45 min.');
-    const one = noForecastDetail(personStatus(s), s, { needed: 1, minutes: 15, runStart: 0, afterGap: false });
+    const one = noForecastDetail(say(s), s, { needed: 1, minutes: 15, runStart: 0, afterGap: false });
     expect(one).toContain('1 more reading needed, about 15 min.');
   });
 
   it('explains stale data with its age and the fix', () => {
     const s = status({ status: 'data_gap', stale: true, minutes_since_last: 180 }, { fresh: false });
-    expect(noForecastDetail(personStatus(s), s, null)).toBe(
+    expect(noForecastDetail(say(s), s, null)).toBe(
       'No forecast: your latest reading is 3 h old. Forecasts need a reading within the last hour. Add a reading or import a newer file.',
     );
   });
 
   it('dates old imports and points at the past forecast', () => {
     const s = status({ status: 'data_gap', stale: true, minutes_since_last: 3 * 24 * 60 }, { fresh: false });
-    const text = noForecastDetail(personStatus(s), s, null)!;
+    const text = noForecastDetail(say(s), s, null)!;
     expect(text).toMatch(/^Your data ends \d{1,2} Oct 2026, \d\d:\d\d\. The forecast below was made then\./);
     const none = status({ status: 'data_gap', stale: true, minutes_since_last: 3 * 24 * 60 }, { fresh: false, prediction: null });
-    expect(noForecastDetail(personStatus(none), none, null)).toMatch(/For a forecast, add a reading or import a newer file\.$/);
+    expect(noForecastDetail(say(none), none, null)).toMatch(/For a forecast, add a reading or import a newer file\.$/);
   });
 
   it('explains a gap inside recent readings', () => {
     const s = status({ status: 'data_gap', stale: false }, { fresh: false, prediction: null });
-    expect(noForecastDetail(personStatus(s), s, { needed: 5, minutes: 75, runStart: 0, afterGap: true })).toBe(
+    expect(noForecastDetail(say(s), s, { needed: 5, minutes: 75, runStart: 0, afterGap: true })).toBe(
       'Your recent readings have a gap of more than an hour. Forecasts restart after 2 hours of readings. 5 more readings needed, about 1 h 15 min.',
     );
   });
 
   it('has nothing to add while a forecast is current', () => {
     const s = status({ status: 'ok' });
-    expect(noForecastDetail(personStatus(s), s, null)).toBeNull();
+    expect(noForecastDetail(say(s), s, null)).toBeNull();
   });
 });

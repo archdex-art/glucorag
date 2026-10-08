@@ -33,8 +33,9 @@ import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import org.glucorag.app.data.LocalDb
 import org.glucorag.app.data.LocalState
-import org.glucorag.app.data.QueueDb
+import org.glucorag.app.data.Session
 import org.glucorag.app.data.SyncState
 import org.glucorag.app.source.Simulation
 import org.glucorag.app.sync.SyncWorker
@@ -72,13 +73,13 @@ fun watchLine(connected: Boolean?) = when (connected) {
 }
 
 @Composable
-fun TodayScreen(server: String?, simulated: Boolean, onSettings: () -> Unit, onSignIn: () -> Unit, onEnterDetails: () -> Unit) {
+fun TodayScreen(session: Session, onSettings: () -> Unit, onSignIn: () -> Unit, onEnterDetails: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val local = LocalState.get(context)
     val snapshot by local.snapshot.collectAsState()
     val sync by local.sync.collectAsState()
-    val waiting by QueueDb.get(context).queue().observeCount().collectAsState(initial = 0)
+    val waiting by LocalDb.get(context).queue().observeCount().collectAsState(initial = 0)
     val watch = rememberWatchConnected()
     val now = rememberNow()
 
@@ -92,7 +93,7 @@ fun TodayScreen(server: String?, simulated: Boolean, onSettings: () -> Unit, onS
             Text("GlucoRAG", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             TextButton(onClick = onSettings) { Text("Settings") }
         }
-        if (simulated) {
+        if (session.simulated) {
             Sheet {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Simulated readings, not from a sensor", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -100,28 +101,38 @@ fun TodayScreen(server: String?, simulated: Boolean, onSettings: () -> Unit, onS
                 }
             }
         }
-        Sheet { Answer(snapshot, now) }
+        Sheet {
+            Answer(snapshot, now)
+            if (snapshot?.server?.state == "needs_setup") OutlinedButton(onClick = onEnterDetails) { Text("Enter your details") }
+        }
         snapshot?.let { s ->
             Sheet {
                 SectionTitle("The last 3 hours and the next hour")
                 GlucoseChart(s, now, chartDescription(s, now))
                 Hint(
-                    "Line: your readings. Shaded: the forecast band for the next hour. Rules at " +
+                    "Line: your readings. Shaded: where your glucose is likely to be in the next hour. Lines at " +
                         "${formatGlucose(70.0, s.unit)} and ${formatGlucose(180.0, s.unit)} ${s.unit.label}.",
                 )
             }
         }
         Sheet {
             SectionTitle("Phone and watch")
-            Text(syncLine(sync, waiting, now), style = MaterialTheme.typography.bodyMedium)
-            Text(watchLine(watch), style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                when (sync?.state) {
-                    SyncState.SIGNED_OUT -> OutlinedButton(onClick = onSignIn) { Text("Sign in again") }
-                    SyncState.NEEDS_SETUP -> OutlinedButton(onClick = onEnterDetails) { Text("Enter your details") }
-                    else -> OutlinedButton(onClick = { SyncWorker.enqueue(context) }) { Text("Sync now") }
+            if (session.localOnly) {
+                Text("Forecasts run on this phone. No server connected.", style = MaterialTheme.typography.bodyMedium)
+                Text(watchLine(watch), style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Text(syncLine(sync, waiting, now), style = MaterialTheme.typography.bodyMedium)
+                Text(watchLine(watch), style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    when (sync?.state) {
+                        SyncState.SIGNED_OUT -> OutlinedButton(onClick = onSignIn) { Text("Sign in again") }
+                        SyncState.NEEDS_SETUP -> OutlinedButton(onClick = onEnterDetails) { Text("Enter your details") }
+                        else -> OutlinedButton(onClick = { SyncWorker.enqueue(context) }) { Text("Sync now") }
+                    }
+                    session.server?.let { server ->
+                        TextButton(onClick = { openUrl(context, "$server/ui/history") }) { Text("Full history on the website") }
+                    }
                 }
-                if (server != null) TextButton(onClick = { openUrl(context, "$server/ui/history") }) { Text("Full history on the website") }
             }
         }
         ResearchNotice()
@@ -140,8 +151,8 @@ private fun Answer(snapshot: Snapshot?, now: Long) {
     }
     // The shared sentences speak from the watch; two of them need the phone's own words.
     val sentence = when (status.kind) {
-        StatusKind.OPEN_PHONE -> if (snapshot?.server?.state == "needs_setup") "Enter your details to see your forecast" else "Sign in again to see your forecast"
-        StatusKind.WAITING -> "Waiting for the first upload"
+        StatusKind.OPEN_PHONE -> "Enter your details to see your forecast"
+        StatusKind.WAITING -> "Waiting for the first reading"
         else -> status.sentence
     }
     Text(
@@ -174,11 +185,11 @@ private fun Answer(snapshot: Snapshot?, now: Long) {
             Column {
                 Text("In $h min", style = MaterialTheme.typography.labelMedium, color = c.ink2)
                 Text(
-                    "${formatGlucose(f.median[i], unit)} ${unit.label}",
+                    "About ${formatGlucose(f.median[i], unit)} ${unit.label}",
                     style = MaterialTheme.typography.titleMedium,
                     color = c.zoneText.getValue(zoneOf(f.median[i])),
                 )
-                Text("${formatGlucose(f.low[i], unit)}–${formatGlucose(f.high[i], unit)}", style = MaterialTheme.typography.bodySmall, color = c.ink2)
+                Text("Likely ${formatGlucose(f.low[i], unit)}–${formatGlucose(f.high[i], unit)}", style = MaterialTheme.typography.bodySmall, color = c.ink2)
             }
         }
     }
@@ -189,5 +200,5 @@ private fun chartDescription(s: Snapshot, now: Long): String {
     val f = s.forecast?.takeIf { now < it.t0 + 3_600_000L }
     val base = "Latest reading ${formatGlucose(reading.mgdl, s.unit)} ${s.unit.label}."
     return if (f == null) "$base No current forecast." else
-        "$base Next hour forecast band ${formatGlucose(f.low.min(), s.unit)} to ${formatGlucose(f.high.max(), s.unit)} ${s.unit.label}."
+        "$base In the next hour likely between ${formatGlucose(f.low.min(), s.unit)} and ${formatGlucose(f.high.max(), s.unit)} ${s.unit.label}."
 }

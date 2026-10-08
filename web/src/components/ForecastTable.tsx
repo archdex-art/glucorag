@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import type { Prediction, Unit } from '../api/types';
-import { crossingMatrix, quantileIndex, sortForecast } from '../lib/forecast';
+import { chanceLabel, crossingMatrix, quantileIndex, sortForecast } from '../lib/forecast';
 import { fmtQuantile } from '../lib/format';
 import { MINUTE, formatTime } from '../lib/time';
 import { formatGlucose } from '../lib/units';
@@ -19,13 +19,14 @@ interface Props {
 
 const MARK = { size: 12, strokeWidth: 2, 'aria-hidden': true } as const;
 
-/** Every forecast quantile at every horizon; cells across a threshold are marked. */
+/** Every forecast quantile at every horizon; cells across a threshold are marked. People read chances, not quantile names. */
 export function ForecastTable({ prediction, hypoQuantile, hyperQuantile, hypo, hyper, unit = 'mg/dL', audience = 'staff' }: Props) {
   const f = sortForecast(prediction);
   const marks = crossingMatrix(f, hypo, hyper);
   const hypoCol = quantileIndex(f.quantiles, hypoQuantile);
   const hyperCol = quantileIndex(f.quantiles, hyperQuantile);
-  const [lowWord, highWord] = audience === 'person' ? ['low', 'high'] : ['hypo', 'hyper'];
+  const person = audience === 'person';
+  const [lowWord, highWord] = person ? ['low', 'high'] : ['hypo', 'hyper'];
   const g = (v: number | undefined) => (v === undefined || Number.isNaN(v) ? '—' : formatGlucose(v, unit));
   return (
     <div className="table-wrap">
@@ -40,16 +41,16 @@ export function ForecastTable({ prediction, hypoQuantile, hyperQuantile, hypo, h
             <ArrowUp {...MARK} /> high
           </span>
           .{' '}
-          {audience === 'person'
-            ? `Your alerts read ${fmtQuantile(hypoQuantile)} for lows and ${fmtQuantile(hyperQuantile)} for highs: the edges of your forecast band.`
+          {person
+            ? `Each column is a level with that chance of your glucose ending up below or above it. Low alerts watch the “${chanceLabel(hypoQuantile)}” column, high alerts the “${chanceLabel(hyperQuantile)}” column.`
             : `Alerts read ${fmtQuantile(hypoQuantile)} for hypo and ${fmtQuantile(hyperQuantile)} for hyper.`}
         </caption>
         <thead>
           <tr>
-            <th scope="col">Horizon</th>
+            <th scope="col">{person ? 'Time ahead' : 'Horizon'}</th>
             {f.quantiles.map((q, i) => (
               <th key={q} scope="col" className={i === hypoCol || i === hyperCol ? 'col-alert' : undefined}>
-                {fmtQuantile(q)}
+                {person ? chanceLabel(q) : fmtQuantile(q)}
                 {i === hypoCol ? <span className="col-note">{lowWord} alert</span> : null}
                 {i === hyperCol ? <span className="col-note">{highWord} alert</span> : null}
               </th>

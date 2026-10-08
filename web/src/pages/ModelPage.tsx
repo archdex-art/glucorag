@@ -1,13 +1,15 @@
 import { CircleCheck, CircleX } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useModel } from '../api/hooks';
+import { useModel, useModelAccuracy } from '../api/hooks';
 import type { ModelInfo } from '../api/types';
 import { Facts } from '../components/Facts';
+import { LiveAccuracy } from '../components/LiveAccuracy';
 import { MetricsTable } from '../components/MetricsTable';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState, Skeleton } from '../components/States';
 import { TimeInRanges } from '../components/TimeInRanges';
 import { ICON } from '../components/icon';
+import { useRefresh } from '../components/refresh';
 import { asNumber, fmtNumber, fmtPValue, fmtQuantile, humanize, isRecord } from '../lib/format';
 import { asHorizonMetrics, asMeanStd, fmtMeanStd, type MeanStd } from '../lib/metrics';
 import { PAPER_CV_RMSE, PAPER_DATASET, PAPER_RMSE, PAPER_SOURCE, type PaperValue } from '../lib/paper';
@@ -456,10 +458,12 @@ function Details({ m }: { m: ModelInfo }) {
 }
 
 export function ModelPage() {
+  const { paused } = useRefresh();
   const model = useModel();
+  const accuracy = useModelAccuracy(paused);
   return (
     <>
-      <PageHeader title="Model" />
+      <PageHeader title="Model" refresh={{ updatedAt: accuracy.dataUpdatedAt }} />
       <div className="sheet">
         {model.isPending ? <Skeleton label="Loading the model card" variant="block" rows={3} /> : null}
         {model.isError ? (
@@ -471,6 +475,11 @@ export function ModelPage() {
           <>
             <Verdict m={model.data} />
             <Accuracy m={model.data} />
+          </>
+        ) : null}
+        <LiveAccuracy query={accuracy} />
+        {model.data ? (
+          <>
             <InSilico m={model.data} />
             <Details m={model.data} />
           </>

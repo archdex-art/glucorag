@@ -34,6 +34,8 @@ glucorag-serve = "glucorag.api.__main__:main"
 glucorag-replay = "glucorag.ingest.adapters:main"
 glucorag-evaluate = "glucorag.evaluate.run:main"
 glucorag-release = "glucorag.release:main"
+glucorag-export-onnx = "glucorag.export.onnx_export:main"
+glucorag-bench = "glucorag.bench.run:main"
 
 [project.optional-dependencies]
 dev = [
@@ -48,6 +50,16 @@ sim = [
     "gym==0.26.2",
     "setuptools<81",
     "matplotlib>=3.8",
+]
+# ONNX export of a model artifact for the phone app (glucorag-export-onnx).
+export = [
+    "onnx>=1.16",
+    "onnxruntime>=1.18",
+]
+# Zero-shot foundation-model benchmark (glucorag-bench); research only, never installed in CI.
+bench = [
+    "chronos-forecasting>=2.3,<3",
+    "timesfm[torch]>=3.0,<4",
 ]
 
 [build-system]
@@ -70,7 +82,7 @@ ignore = []
 
 [tool.pyright]
 include = ["glucorag", "tests"]
-exclude = ["glucorag/sim", "tests/test_sim.py"]
+exclude = ["glucorag/sim", "tests/test_sim.py", "glucorag/bench/models.py"]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = false
 reportUnknownMemberType = false

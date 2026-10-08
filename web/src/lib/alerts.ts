@@ -1,7 +1,7 @@
-import type { AlertType, StoredAlert, Unit } from '../api/types';
+import type { AlertType, RiskType, StoredAlert, Unit } from '../api/types';
 import { asNumber, fmtQuantile } from './format';
 import { formatElapsed, tryParseApiTime } from './time';
-import { formatGlucose, formatGlucoseUnit } from './units';
+import { formatGlucoseUnit } from './units';
 
 export const ALERT_LABEL: Record<AlertType, string> = {
   hypo: 'Hypo predicted',
@@ -44,28 +44,21 @@ export const PERSON_ALERT_LABEL: Record<AlertType, string> = {
   data_gap: 'Readings stopped',
 };
 
-/** "The lower edge of your forecast band reached 64 mg/dL in 25 min, 6 below 70." */
+/**
+ * A predicted low or high in plain words: "Low likely in about 25 min (could reach 66 mg/dL)."
+ * `horizon` is when the forecast first crosses the limit; `couldReach` the furthest it goes.
+ */
+export function likelySentence(type: RiskType, horizon: number | null, couldReach: number | null, unit: Unit): string {
+  const head = `${type === 'hypo' ? 'Low' : 'High'} likely ${horizon !== null ? `in about ${horizon} min` : 'within the hour'}`;
+  return couldReach !== null ? `${head} (could reach ${formatGlucoseUnit(couldReach, unit)}).` : `${head}.`;
+}
+
+/** "Low likely in about 25 min (could reach 66 mg/dL)." */
 export function personAlertSentence(a: StoredAlert, unit: Unit): string {
   if (a.type === 'data_gap') {
     const gap = asNumber(a.details.minutes_since_last);
     return gap !== null ? `No reading for ${formatElapsed(gap)}, so forecasts paused.` : 'Forecasts paused for a gap in readings.';
   }
-  const edge = a.type === 'hypo' ? 'lower' : 'upper';
-  const value = asNumber(a.details.value_mg_dl) ?? asNumber(a.details.extreme_mg_dl);
-  const extreme = asNumber(a.details.extreme_mg_dl);
-  const margin = asNumber(a.details.margin_mg_dl);
-  const when = a.horizon_min !== null ? ` in ${a.horizon_min} min` : ' within the hour';
-  if (value === null) return `The ${edge} edge of your forecast band crossed ${a.type === 'hypo' ? 'the low' : 'the high'} limit${when}.`;
-  let text = `The ${edge} edge of your forecast band reached ${formatGlucoseUnit(value, unit)}${when}`;
-  if (extreme !== null && margin !== null) {
-    // margin is how far the extreme lies beyond the threshold, so the threshold follows from it.
-    const threshold = a.type === 'hypo' ? extreme + margin : extreme - margin;
-    const beyond = Math.abs(value - threshold);
-    // A crossing smaller than the display precision reads "at 10.0", never "0.0 above 10.0".
-    text +=
-      formatGlucose(beyond, unit) === formatGlucose(0, unit)
-        ? `, at ${formatGlucose(threshold, unit)}`
-        : `, ${formatGlucose(beyond, unit)} ${a.type === 'hypo' ? 'below' : 'above'} ${formatGlucose(threshold, unit)}`;
-  }
-  return `${text}.`;
+  const couldReach = asNumber(a.details.extreme_mg_dl) ?? asNumber(a.details.value_mg_dl);
+  return likelySentence(a.type, a.horizon_min, couldReach, unit);
 }

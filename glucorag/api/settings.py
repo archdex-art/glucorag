@@ -2,7 +2,8 @@
 
 ``GLUCORAG_API_KEYS`` is a comma-separated list; ``GLUCORAG_MODEL_PATH`` points at a
 registered artifact directory (``models/<version>``). Alert thresholds default to the
-shared ``settings.alert_thresholds``.
+shared ``settings.alert_thresholds``. ``GLUCORAG_PHONE_APK`` / ``GLUCORAG_WATCH_APK`` name
+app files offered at ``/download/phone.apk`` and ``/download/watch.apk``.
 """
 
 from datetime import timedelta
@@ -19,7 +20,7 @@ from glucorag.service import ServiceConfig
 
 class ApiSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="GLUCORAG_", extra="ignore", protected_namespaces=()
+        env_prefix="GLUCORAG_", extra="ignore", protected_namespaces=(), populate_by_name=True
     )
 
     model_path: Path | None = None
@@ -54,6 +55,14 @@ class ApiSettings(BaseSettings):
         default=None,
         description="address phones use to reach this server (pairing QR), e.g. "
         "http://192.168.1.20:8000; unset = guessed from the request",
+    )
+    phone_apk_path: Path | None = Field(
+        default=None, validation_alias="GLUCORAG_PHONE_APK",
+        description="phone app file offered at /download/phone.apk; unset = link to releases",
+    )
+    watch_apk_path: Path | None = Field(
+        default=None, validation_alias="GLUCORAG_WATCH_APK",
+        description="watch app file offered at /download/watch.apk; unset = link to releases",
     )
     host: str = "127.0.0.1"
     port: int = 8000

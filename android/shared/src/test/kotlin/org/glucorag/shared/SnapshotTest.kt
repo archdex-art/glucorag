@@ -67,8 +67,8 @@ class SnapshotTest {
                 low = listOf(139.345, 140.678, 140.901, 139.234),
                 high = listOf(152.567, 161.890, 170.123, 178.456),
             ),
-            risk = Risk(type = "hypo", at = t + 1_800_000, severity = "high"),
-            server = Server(state = "unreachable", since = t),
+            risk = Risk(type = "hypo", at = t + 1_800_000, severity = "high", mgdl = 52.345678),
+            server = Server(state = "warming_up", since = t),
             written = t,
         )
         val bytes = SnapshotCodec.encode(full)

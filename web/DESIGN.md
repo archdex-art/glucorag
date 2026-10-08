@@ -150,20 +150,30 @@ types: TrendingUp (hyper), TrendingDown (hypo), WifiOff (data gap).
 
 ### Personal app
 
-- **Status sentence.** Today's h1-sized answer with a status icon: "In range for the next hour",
-  "Low predicted in 25 min", "High predicted in 15 min", "High now" / "Low now" (the current value
-  is already past the threshold, the same inclusive rule as alerts), "Collecting readings", "No
-  current forecast", "No readings yet". A high-severity flag fills it with the zone fill
-  (`.is-urgent.tone-hypo|hyper`); otherwise it stays ink. Below it, `.status-detail` explains in
-  plain words ("the lower edge of your forecast band"); quantile names appear only in the
-  expandable forecast table. Wording never contradicts the coloured value (`src/lib/personStatus.ts`).
+- **Status sentence.** Today's h1-sized answer with a status icon, in plain words: "In range for
+  the next hour.", "Heading below 70 in about 25 min (could reach 68)." (the limit in the person's
+  unit, the earliest flag's first crossing, "soon" at horizon 0, then in brackets its lowest or
+  highest forecast, omitted without a value), or, when the reading is already past the threshold
+  (the same inclusive rule as alerts) or out of range with no flag, "198 mg/dL, steady. Likely
+  about 185 in 30 min.", then "Collecting readings.", "No current forecast.", "No readings yet.". A
+  high-severity flag fills it with the zone fill (`.is-urgent.tone-hypo|hyper`); otherwise it stays
+  ink. Below it, `.status-detail` lists the other likely lows/highs ("High likely in about 45 min
+  (could reach 205 mg/dL).") and, under the readout, one caption on how close the 30-minute forecast
+  usually was. People never read "band", "edge" or quantile names; the forecast table speaks in
+  chances ("1 in 4 chance below"). Wording never contradicts the coloured value
+  (`src/lib/personStatus.ts`).
 - **Today readout.** The readout in a stacked layout: Now across the top, then In 30 min and In 60
   min side by side, with the reading's age under Now.
 - **Today chart.** The forecast chart over the last 3 h plus the next hour, so the forecast takes a
   quarter of the width. With old data it is labelled "Forecast made at …" instead of "Now".
-- **Add-data choices.** Four equal cells in a 2×2 grid divided by hairlines (one column on phones):
-  Import from your sensor, Try with sample data, Enter readings yourself, Live from your phone, each
-  with an `--action` icon, a sentence and one button. Used on setup and on an empty Today.
+- **Add-data choices.** One recommended path first: "Live from your phone" in a card with a 2px
+  `--action` border and a Recommended chip, with Get the phone app (`/help/phone`) and Connect a
+  phone, which opens the pairing panel in place. Below it, "Or start another way": Import a file,
+  Type a reading and Try sample data as secondary buttons, each with one line of help (one column
+  on phones). Used on setup and on an empty Today; Add data repeats the phone card and, for an
+  empty account, sample data.
+- **Install help.** `/help/phone` and `/help/watch`, open to everyone in the set-up frame with a
+  Back link: numbered plain steps, the app file from `GET /downloads` or the releases page.
 - **Connected devices.** A Settings section (`#devices`, both roles) listing each phone as a row
   between hairlines: the device name in 600, "Connected 6 Oct 2026. Last used 4 min ago." in
   `--ink-2`, and a quiet danger Disconnect button that opens the confirm dialog.
@@ -177,7 +187,7 @@ types: TrendingUp (hyper), TrendingDown (hypo), WifiOff (data gap).
   order was used and how to change it.
 - **Radio cards.** Alert sensitivity as three bordered cards in a row (stacked on phones). The
   checked card gets an `--action` border, inset ring and `--wash` fill; each card shows what the
-  setting does and a preview of the band for the latest forecast.
+  setting does and a preview of the latest forecast's range with that setting.
 - **Confirm dialog.** A modal `<dialog>` (`showModal`, backdrop) that names the exact consequence
   ("Delete 193 readings, all forecasts and alerts. Your account and settings stay."). The confirm
   button repeats the action and is ink-filled, since zone colours are reserved for glucose. Deleting

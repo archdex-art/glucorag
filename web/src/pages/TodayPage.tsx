@@ -1,8 +1,8 @@
 import { Plus } from 'lucide-react';
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { useMe, useMeAlerts, useMeHistory, useMeStatus } from '../api/hooks';
-import type { MeHistory, MeInfo, MeStatus, StoredAlert } from '../api/types';
+import { useMe, useMeAccuracy, useMeAlerts, useMeHistory, useMeStatus } from '../api/hooks';
+import type { MeAccuracy, MeHistory, MeInfo, MeStatus, StoredAlert } from '../api/types';
 import { useAccount } from '../auth/context';
 import { AddDataChoices } from '../components/AddDataChoices';
 import { GlucoseFigure } from '../components/GlucoseFigure';
@@ -16,8 +16,9 @@ import { StatusIcon } from '../components/StatusIcon';
 import { ICON } from '../components/icon';
 import { useRefresh } from '../components/refresh';
 import { todayMode } from '../lib/access';
+import { accuracyLine } from '../lib/accuracy';
 import { buildFan, mergeChartRows, readingSeries } from '../lib/forecast';
-import { noForecastDetail, personStatus, riskDetail, type PersonStatus } from '../lib/personStatus';
+import { noForecastDetail, personStatus, type PersonStatus } from '../lib/personStatus';
 import { sourcePhrase } from '../lib/source';
 import { HOUR, formatElapsed, formatWhen, parseApiTime, tryParseApiTime } from '../lib/time';
 import { timeInRanges } from '../lib/tir';
@@ -35,31 +36,23 @@ function ago(minutes: number | null): string {
 }
 
 /** The answer: one sentence, then why. */
-function StatusSentence({ p, s, me, warmText }: { p: PersonStatus; s: MeStatus; me: MeInfo; warmText: string | null }) {
+function StatusSentence({ p, s, warmText }: { p: PersonStatus; s: MeStatus; warmText: string | null }) {
   const first = p.flags[0];
-  // The value's own side when no flag fired (out of range now, band back in range).
+  // The value's own side when no flag fired (out of range now, no low or high likely).
   const side = first?.type ?? (p.kind === 'high' ? 'hyper' : p.kind === 'low' ? 'hypo' : undefined);
   const tone = side ? `tone-${side}` : p.kind === 'in_range' ? 'status-ok' : 'tone-neutral';
-  const bandInRange = s.status.status === 'ok';
   return (
     <div className="status-block">
       <h2 className={`status-sentence ${tone}${p.urgent ? ' is-urgent' : ''}`}>
         <StatusIcon status={side ? 'at_risk' : s.status.status} risk={side} />
         <span>{p.sentence}</span>
       </h2>
-      {p.flags.length ? (
+      {p.details.length ? (
         <ul className="status-detail">
-          {p.flags.map((f) => (
-            <li key={f.type}>{riskDetail(f, me.unit, s.model)}</li>
+          {p.details.map((d) => (
+            <li key={d}>{d}</li>
           ))}
         </ul>
-      ) : null}
-      {bandInRange ? (
-        <p className="status-detail">
-          Your forecast band stays between {formatGlucose(s.model.hypo_mg_dl, me.unit)} and{' '}
-          {formatGlucose(s.model.hyper_mg_dl, me.unit)} {me.unit}
-          {p.kind === 'in_range' ? ' for the next hour.' : ` from ${s.status.forecast?.horizons[0] ?? 15} min on.`}
-        </p>
       ) : null}
       {warmText ? <p className="status-detail">{warmText}</p> : null}
     </div>
@@ -73,13 +66,16 @@ interface Ready {
   alerts: StoredAlert[] | undefined;
   alertsError: unknown;
   retryAlerts: () => void;
+  /** Absent while loading or when it failed: the line is simply not shown. */
+  accuracy: MeAccuracy | undefined;
 }
 
-function TodayContent({ me, s, history, alerts, alertsError, retryAlerts }: Ready) {
+function TodayContent({ me, s, history, alerts, alertsError, retryAlerts, accuracy }: Ready) {
   const unit = me.unit;
   const row = s.status;
-  const p = personStatus(s);
+  const p = personStatus(s, unit);
   const now = tryParseApiTime(s.now);
+  const accuracyText = accuracy ? accuracyLine(accuracy, unit) : null;
 
   const view = useMemo(() => {
     const readings = history.readings.map((r) => ({ t: parseApiTime(r.timestamp), v: r.glucose_mg_dl }));
@@ -103,13 +99,13 @@ function TodayContent({ me, s, history, alerts, alertsError, retryAlerts }: Read
   const t0Label = view.t0 === null ? '' : s.fresh ? 'Now' : `Forecast made at ${formatWhen(view.t0, now)}`;
   const chartSummary =
     `Chart of your readings over the ${CHART_HOURS} hours to ${formatWhen(view.last, now)}` +
-    (view.fan ? `, and the forecast band for the hour after ${formatWhen(view.t0, now)}.` : '. No forecast is drawn.');
+    (view.fan ? `, and the forecast for the hour after ${formatWhen(view.t0, now)}.` : '. No forecast is drawn.');
 
   return (
     <div className="sheet">
       <section className="sheet-section today-top" aria-label="Your glucose now and over the next hour">
         <div className="answer">
-          <StatusSentence p={p} s={s} me={me} warmText={warmText} />
+          <StatusSentence p={p} s={s} warmText={warmText} />
           <Readout
             layout="stack"
             audience="person"
@@ -121,6 +117,7 @@ function TodayContent({ me, s, history, alerts, alertsError, retryAlerts }: Read
             age={row.minutes_since_last !== null ? `Reading from ${formatWhen(view.last, now)}, ${ago(row.minutes_since_last)}` : null}
             noForecast={p.pastForecast ? 'See the past forecast' : 'No current forecast'}
           />
+          {accuracyText ? <p className="caption today-accuracy">{accuracyText}</p> : null}
         </div>
         <div className="today-chart">
           <GlucoseFigure
@@ -171,8 +168,8 @@ function TodayContent({ me, s, history, alerts, alertsError, retryAlerts }: Read
         {!alerts && !alertsError ? <Skeleton label="Loading alerts" rows={2} /> : null}
         {alerts && alerts.length === 0 ? (
           <p className="muted">
-            No alerts yet. An alert is recorded when your forecast band reaches {formatGlucose(s.model.hypo_mg_dl, unit)} or{' '}
-            {formatGlucose(s.model.hyper_mg_dl, unit)} {unit}.
+            No alerts yet. You get an alert when a low (at or below {formatGlucose(s.model.hypo_mg_dl, unit)}) or a high (at or
+            above {formatGlucose(s.model.hyper_mg_dl, unit)} {unit}) looks likely within the hour.
           </p>
         ) : null}
         {alerts && alerts.length ? <PersonAlerts alerts={alerts} unit={unit} today={now} /> : null}
@@ -204,6 +201,7 @@ export function TodayPage() {
   const status = useMeStatus(paused, hasReadings);
   const history = useMeHistory(24, paused, hasReadings);
   const alerts = useMeAlerts(ALERTS_SHOWN, paused, hasReadings);
+  const accuracy = useMeAccuracy(paused, hasReadings);
 
   const last = status.data?.status.last_reading ?? null;
   const source = me.data ? sourcePhrase(account.email, last) : null;
@@ -243,7 +241,7 @@ export function TodayPage() {
         {header}
         <div className="sheet sheet-pad">
           <h2 className="today-empty-title">No readings yet</h2>
-          <p className="today-empty-lede">Add your data to see your next hour. Choose one way to start:</p>
+          <p className="today-empty-lede">Add your data to see your next hour. The easiest way is live from your phone.</p>
           <AddDataChoices headingLevel={3} />
         </div>
       </>
@@ -285,6 +283,7 @@ export function TodayPage() {
         alerts={alerts.data}
         alertsError={alerts.error}
         retryAlerts={() => void alerts.refetch()}
+        accuracy={accuracy.data}
       />
     </>
   );

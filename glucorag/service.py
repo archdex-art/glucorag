@@ -25,6 +25,14 @@ from glucorag.core.config import settings
 from glucorag.core.logging import log_event
 from glucorag.core.schemas import Alert, PatientProfile, Prediction
 from glucorag.core.storage import Storage, StoredAlert, StoredPrediction, StoredProfile
+from glucorag.evaluate.live import HORIZONS as LIVE_HORIZONS
+from glucorag.evaluate.live import (
+    AccuracyReport,
+    MatchedForecast,
+    build_report,
+    first_daily_date,
+    match_forecasts,
+)
 from glucorag.features.window_buffer import WindowBuffer
 from glucorag.inference.engine import DataGapError, ForecastEngine, Reading
 from glucorag.ingest.validate import (
@@ -40,6 +48,7 @@ from glucorag.risk.detectors import (
     AlertPolicy,
     RiskConfig,
     RiskFlag,
+    alerting,
     assess,
     quantile_index,
 )
@@ -444,7 +453,8 @@ class GlucoseService:
         inference_ms = _ms_since(t_inf)
         self.metrics.inference_latency.observe(inference_ms / 1000)
         flags = assess(prediction, self.config.risk, patient.policy)
-        by_type = {f.type: f for f in flags}
+        # Alerts read a narrower rule than the status (risk flags): see detectors.alerting.
+        by_type = {f.type: f for f in alerting(flags, history[-1].glucose_mg_dl, self.config.risk)}
         alerts = []
         with self.storage.transaction():
             self.storage.insert_prediction(prediction, inference_ms)
@@ -510,6 +520,31 @@ class GlucoseService:
         if prediction is None:
             return None, []
         return prediction, assess(prediction, self.config.risk, patient.policy)
+
+    def accuracy(self, patient_id: str | None = None) -> AccuracyReport:
+        """Realised forecast accuracy over the last 30 days (see ``evaluate.live``): one
+        patient's, or the whole cohort's with ``patient_id=None``."""
+        now = self.clock.now()
+        if now.year < 1900:  # a replay clock before its first reading
+            return build_report([], [], None)
+        tolerance = timedelta(minutes=self.engine.meta.interval_min / 2)
+        start = now - timedelta(days=30) - tolerance
+        by_patient: dict[str, list[StoredPrediction]] = {}
+        for p in self.storage.predictions(
+            patient_id, since=start - timedelta(minutes=max(LIVE_HORIZONS)), until=now
+        ):
+            by_patient.setdefault(p.patient_id, []).append(p)
+        matches: list[MatchedForecast] = []
+        for pid, predictions in by_patient.items():
+            readings = self.storage.readings(pid, since=start, until=now + tolerance)
+            matches += match_forecasts(
+                predictions, [(r.timestamp, r.glucose_mg_dl) for r in readings], tolerance
+            )
+        alerts = self.storage.alerts(
+            patient_id, since=datetime.combine(first_daily_date(now), datetime.min.time()),
+            until=now,
+        )
+        return build_report(matches, alerts, now)
 
     def cohort_risk(self) -> list[PatientRisk]:
         """Every registered patient, most urgent first.

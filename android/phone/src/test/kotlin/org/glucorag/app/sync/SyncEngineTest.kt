@@ -13,25 +13,19 @@ import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import okhttp3.OkHttpClient
+import org.glucorag.app.data.LocalProfile
 import org.glucorag.app.data.QueueDao
 import org.glucorag.app.data.QueuedReading
 import org.glucorag.app.data.SessionStore
-import org.glucorag.app.net.AlertDto
 import org.glucorag.app.net.GlucoApi
-import org.glucorag.shared.CgmReading
-import org.glucorag.shared.GlucoseUnit
-import org.glucorag.shared.Snapshot
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.net.InetAddress
-import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
 
 class SyncEngineTest {
@@ -48,13 +42,11 @@ class SyncEngineTest {
 
     private lateinit var store: SessionStore
     private val queue = FakeQueue()
-    private val published = mutableListOf<Snapshot>()
-    private val notified = mutableListOf<AlertDto>()
+    private var phoneProfile: LocalProfile? = null
 
     // Server-side state the dispatcher serves.
     private var unit = "mg/dL"
-    private var statusJson = status()
-    private var alerts: List<String> = emptyList()
+    private var accountProfile: String? = """{"age":41,"gender":"F","bmi":23.4,"diabetes_type":"T1D","sensitivity":"cautious","hypo_quantile":0.1,"hyper_quantile":0.9}"""
     private var batchStatus = 200
     private var rejectAll = false
 
@@ -70,15 +62,9 @@ class SyncEngineTest {
                         val n = Regex("\"timestamp\"").findAll(request.body?.utf8() ?: "").count()
                         if (rejectAll) json("""{"accepted":0,"already_present":0,"rejected":[]}""") else json("""{"accepted":$n,"already_present":0,"rejected":[]}""")
                     }
-                    path == "/auth/me" -> json("""{"email":"a@example.com","role":"person","unit":"$unit","has_profile":true}""")
-                    path == "/me/status" -> json(statusJson)
-                    path == "/me/history" -> json(history())
-                    path == "/me/alerts" -> {
-                        val after = request.url.queryParameter("after_id")!!.toLong()
-                        // Oldest first, capped at 2 per page to exercise paging.
-                        val page = alerts.filter { idOf(it) > after }.take(2)
-                        json(page.joinToString(",", "[", "]"))
-                    }
+                    path == "/auth/me" -> json("""{"email":"a@example.com","role":"person","unit":"$unit","has_profile":${accountProfile != null}}""")
+                    path == "/me" -> json("""{"email":"a@example.com","role":"person","unit":"$unit","profile":${accountProfile ?: "null"}}""")
+                    path == "/me/profile" && request.method == "PUT" -> json("""{"unit":"mmol/L"}""")
                     else -> json("""{"detail":"not found"}""", 404)
                 }
             }
@@ -98,34 +84,12 @@ class SyncEngineTest {
     private fun json(body: String, code: Int = 200) =
         MockResponse.Builder().code(code).setHeader("Content-Type", "application/json").body(body).build()
 
-    private fun iso(ms: Long) = Instant.ofEpochMilli(ms).toString()
-
-    private fun idOf(alertJson: String) = Regex("\"id\":(\\d+)").find(alertJson)!!.groupValues[1].toLong()
-
-    private fun alert(id: Long, type: String = "hypo", severity: String = "high", tRaised: Long = now) =
-        """{"id":$id,"type":"$type","severity":"$severity","horizon_min":30,"t_raised":"${iso(tRaised)}"}"""
-
-    private fun status(state: String = "ok", fresh: Boolean = true, lastReading: Long = now - 5 * min, risk: String = "[]") = """
-        {"status":{"status":"$state","last_reading":"${iso(lastReading)}","last_glucose_mg_dl":150.0,
-          "trend_mg_dl_per_min":1.5,"risk":$risk,
-          "forecast":${if (fresh) """{"t0":"${iso(lastReading)}","horizons":[15,30,45,60],"low":[140,130,120,110],"median":[150,145,140,135],"high":[160,170,180,190]}""" else "null"}},
-         "prediction":null,"fresh":$fresh}
-    """.trimIndent()
-
-    private fun history(): String {
-        val points = (0..36).map { i -> """{"timestamp":"${iso(now - 5 * min - (36 - i) * 5 * min)}","glucose_mg_dl":${100 + i}.0}""" }
-        return points.joinToString(",", """{"readings":[""", "]}")
-    }
-
-    private fun engine(latest: CgmReading? = null, last: Snapshot? = null, base: String = base()) = SyncEngine(
+    private fun engine(base: String = base()) = SyncEngine(
         api = GlucoApi(base, OkHttpClient(), { "tok" }),
         queue = queue,
         store = store,
-        publish = { published += it },
-        notify = { notified += it },
-        clock = { now },
-        latestReading = { latest },
-        lastSnapshot = { last },
+        localProfile = { phoneProfile },
+        saveProfile = { phoneProfile = it },
     )
 
     private fun batchRequests() = requests.filter { it.url.encodedPath == "/me/readings/batch" }
@@ -139,7 +103,6 @@ class SyncEngineTest {
         val firstTimes = batches.map { Regex("\"timestamp\":\"([^\"]+)\"").find(it.body!!.utf8())!!.groupValues[1] }
         assertEquals(firstTimes.sorted(), firstTimes)
         assertEquals(0, queue.count())
-        assertTrue(outcome is SyncOutcome.Synced)
         assertEquals(1_200, (outcome as SyncOutcome.Synced).uploaded)
     }
 
@@ -155,133 +118,54 @@ class SyncEngineTest {
     fun unauthorizedKeepsQueueAndSignsOut() = runBlocking {
         batchStatus = 401
         queue.insert(QueuedReading(now - min, 120.0, "juggluco"))
-        val outcome = engine(latest = CgmReading(now - min, 120.0, 0.2, "juggluco")).run()
-        assertTrue(outcome is SyncOutcome.SignedOut)
+        assertEquals(SyncOutcome.SignedOut, engine().run())
         assertEquals(1, queue.count())
-        assertEquals("signed_out", published.last().server.state)
-        assertEquals(120.0, published.last().now!!.mgdl, 0.0)
     }
 
     @Test
-    fun networkFailurePublishesUnreachableWithoutForecast() = runBlocking {
+    fun networkFailureKeepsQueueForRetry() = runBlocking {
         val closed = base()
         server.close()
         queue.insert(QueuedReading(now - min, 120.0, "juggluco"))
-        val outcome = engine(latest = CgmReading(now - min, 120.0, 0.2, "juggluco"), base = closed).run()
-        assertTrue(outcome is SyncOutcome.Retry)
+        assertTrue(engine(base = closed).run() is SyncOutcome.Retry)
         assertEquals(1, queue.count())
-        val s = published.last()
-        assertEquals("unreachable", s.server.state)
-        assertNull(s.forecast)
-        assertEquals(now - min, s.now!!.t)
     }
 
     @Test
-    fun firstSyncAfterSignInDoesNotNotifyHistory() = runBlocking {
-        alerts = listOf(alert(1), alert(2), alert(3), alert(4), alert(5))
-        engine().run()
-        assertTrue(notified.isEmpty())
-        assertEquals(5L, store.current().lastAlertId)
-    }
-
-    @Test
-    fun alertNotifiedOnceAcrossRestart() = runBlocking {
-        store.update { it.copy(lastAlertId = 0L) }
-        alerts = listOf(alert(1))
-        engine().run()
-        engine().run()
-        assertEquals(listOf(1L), notified.map { it.id })
-    }
-
-    @Test
-    fun replayedAlertWithNewIdNotNotifiedAgain() = runBlocking {
-        store.update { it.copy(lastAlertId = 0L) }
-        alerts = listOf(alert(1, tRaised = now - 5 * min))
-        engine().run()
-        // A backfill replays the same alert (same type and reading time) under a new id.
-        alerts = listOf(alert(1, tRaised = now - 5 * min), alert(7, tRaised = now - 5 * min))
-        engine().run()
-        assertEquals(listOf(1L), notified.map { it.id })
-        assertEquals(7L, store.current().lastAlertId)
-    }
-
-    @Test
-    fun staleAlertNotNotified() = runBlocking {
-        store.update { it.copy(lastAlertId = 0L) }
-        alerts = listOf(alert(1, tRaised = now - 16 * min), alert(2, tRaised = now - 15 * min))
-        engine().run()
-        assertEquals(listOf(2L), notified.map { it.id })
-    }
-
-    @Test
-    fun lowSeverityAndDataGapNotNotified() = runBlocking {
-        store.update { it.copy(lastAlertId = 0L) }
-        alerts = listOf(
-            alert(1, severity = "low"),
-            alert(2, type = "data_gap", severity = "medium"),
-            alert(3, type = "hyper", severity = "medium"),
-        )
-        engine().run()
-        assertEquals(listOf(3L), notified.map { it.id })
-    }
-
-    @Test
-    fun snapshotUsesAccountUnitAndNewerLocalReading() = runBlocking {
+    fun theAccountsProfileAndUnitReachThePhone() = runBlocking {
         unit = "mmol/L"
-        statusJson = status(risk = """[{"type":"hyper","horizon_min":45,"severity":"low"},{"type":"hypo","horizon_min":45,"severity":"medium"}]""")
-        val local = CgmReading(now - min, 155.0, 2.5, "juggluco")
-        engine(latest = local).run()
-        val s = published.last()
-        assertEquals(GlucoseUnit.MMOL_L, s.unit)
-        assertEquals(local.t, s.now!!.t)
-        assertEquals(155.0, s.now!!.mgdl, 0.0)
-        assertEquals("ok", s.server.state)
-        assertNotNull(s.forecast)
-        assertEquals(now - 5 * min, s.forecast!!.t0)
-        assertEquals(listOf(140.0, 130.0, 120.0, 110.0), s.forecast!!.low)
-        // Same horizon: hypo before hyper (the website's sortFlags order).
-        assertEquals("hypo", s.risk!!.type)
-        assertEquals(now - 5 * min + 45 * min, s.risk!!.at)
-        assertTrue(s.recent.size <= 37)
+        phoneProfile = LocalProfile(30, "M", 25.0, "T2D")
+        val outcome = engine().run() as SyncOutcome.Synced
+        assertTrue(outcome.profileChanged)
+        assertEquals(LocalProfile(41, "F", 23.4, "T1D", 0.1, 0.9), phoneProfile)
         assertEquals("mmol/L", store.current().unit)
+        // Unchanged on the next sync.
+        assertEquals(false, (engine().run() as SyncOutcome.Synced).profileChanged)
+        assertTrue(requests.none { it.method == "PUT" })
     }
 
     @Test
-    fun olderLocalReadingLosesToTheServer() = runBlocking {
-        engine(latest = CgmReading(now - 30 * min, 90.0, null, "xdrip")).run()
-        assertEquals(now - 5 * min, published.last().now!!.t)
-        assertEquals(150.0, published.last().now!!.mgdl, 0.0)
-    }
-
-    @Test
-    fun warmingUpAndStaleForecast() = runBlocking {
-        statusJson = status(state = "warming_up", fresh = false)
-        engine().run()
-        assertEquals("warming_up", published.last().server.state)
-        assertNull(published.last().forecast)
-        assertNull(published.last().risk)
-    }
-
-    @Test
-    fun needsSetupIsReported() = runBlocking {
-        statusJson = "" // unused
-        batchStatus = 409
+    fun anAccountWithoutProfileGetsThePhonesBeforeUploading() = runBlocking {
+        accountProfile = null
+        phoneProfile = LocalProfile(30, "M", 25.0, "T2D", 0.02, 0.98)
         queue.insert(QueuedReading(now - min, 120.0, "juggluco"))
-        val outcome = engine().run()
-        assertTrue(outcome is SyncOutcome.NeedsSetup)
-        assertEquals("needs_setup", published.last().server.state)
-        assertEquals(1, queue.count())
+        assertTrue(engine().run() is SyncOutcome.Synced)
+        val put = requests.single { it.method == "PUT" }
+        assertEquals("/me/profile", put.url.encodedPath)
+        val body = put.body!!.utf8()
+        assertTrue(body, body.contains("\"sensitivity\":\"very_cautious\""))
+        assertTrue(body, body.contains("\"diabetes_type\":\"T2D\""))
+        assertTrue(requests.indexOf(put) < requests.indexOf(batchRequests().single()))
+        assertEquals(0, queue.count())
     }
 
     @Test
-    fun publishFailureDoesNotFailTheSync() = runBlocking {
-        val failing = SyncEngine(
-            api = GlucoApi(base(), OkHttpClient(), { "tok" }), queue = queue, store = store,
-            publish = { error("no watch") }, notify = {}, clock = { now },
-        )
-        val outcome = failing.run()
-        assertTrue(outcome is SyncOutcome.Synced)
-        assertEquals(false, outcome.published)
+    fun needsSetupWhenNeitherSideHasAProfile() = runBlocking {
+        accountProfile = null
+        queue.insert(QueuedReading(now - min, 120.0, "juggluco"))
+        assertEquals(SyncOutcome.NeedsSetup, engine().run())
+        assertEquals(1, queue.count())
+        assertTrue(batchRequests().isEmpty())
     }
 
     private class FakeQueue : QueueDao {
@@ -292,6 +176,8 @@ class SyncEngineTest {
             rows.putIfAbsent(reading.t, reading)
             counter.value = rows.size
         }
+
+        override suspend fun insertAll(readings: List<QueuedReading>) = readings.forEach { insert(it) }
 
         override suspend fun oldest(limit: Int) = rows.values.take(limit)
 

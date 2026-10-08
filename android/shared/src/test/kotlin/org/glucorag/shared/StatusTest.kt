@@ -4,13 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.ZoneId
-import java.time.ZoneOffset
 
 class StatusTest {
     private val min = 60_000L
     private val nowMs = 1_759_738_800_000L // 2025-10-06T08:20:00Z
-    private val utc: ZoneId = ZoneOffset.UTC
 
     private fun forecast(t0: Long = nowMs - 5 * min) = Forecast(
         t0 = t0,
@@ -37,7 +34,7 @@ class StatusTest {
         written = nowMs - age,
     )
 
-    private fun status(s: Snapshot?) = statusOf(s, nowMs, utc)
+    private fun status(s: Snapshot?) = statusOf(s, nowMs)
 
     private fun assertLine(line: StatusLine, kind: StatusKind, sentence: String, text: String, title: String) {
         assertEquals(kind, line.kind)
@@ -52,14 +49,12 @@ class StatusTest {
     }
 
     @Test
-    fun row2OpenPhoneWhenSignedOutOrNeedsSetup() {
-        for (state in listOf("signed_out", "needs_setup")) {
-            // Wins even over an old reading.
-            assertLine(
-                status(snap(state = state, age = 60 * min)),
-                StatusKind.OPEN_PHONE, "Open GlucoRAG on your phone", "--", "Phone",
-            )
-        }
+    fun row2OpenPhoneWhenDetailsAreMissing() {
+        // Wins even over an old reading.
+        assertLine(
+            status(snap(state = "needs_setup", age = 60 * min)),
+            StatusKind.OPEN_PHONE, "Open GlucoRAG on your phone", "--", "Phone",
+        )
     }
 
     @Test
@@ -79,79 +74,69 @@ class StatusTest {
     }
 
     @Test
-    fun row5NeedsServerWhenUnreachableWithoutForecast() {
-        assertLine(
-            status(snap(state = "unreachable", forecast = null)),
-            StatusKind.NEEDS_SERVER, "Forecast needs your GlucoRAG server", "--", "Next 1h",
-        )
-        assertLine(
-            status(snap(state = "unreachable", forecast = forecast(t0 = nowMs - 60 * min))),
-            StatusKind.NEEDS_SERVER, "Forecast needs your GlucoRAG server", "--", "Next 1h",
-        )
-    }
-
-    @Test
-    fun row6NoCurrentForecastAndExpiryBoundary() {
+    fun row5NoCurrentForecastAndExpiryBoundary() {
         assertLine(status(snap(forecast = null)), StatusKind.NO_FORECAST, "No current forecast", "--", "Next 1h")
         assertEquals(StatusKind.NO_FORECAST, status(snap(forecast = forecast(t0 = nowMs - 60 * min))).kind)
         assertEquals(StatusKind.IN_RANGE, status(snap(forecast = forecast(t0 = nowMs - 60 * min + 1))).kind)
     }
 
     @Test
-    fun row7PastThresholdNow() {
-        val low = Risk(type = "hypo", at = nowMs + 20 * min, severity = "high")
-        val high = Risk(type = "hyper", at = nowMs + 20 * min, severity = "medium")
+    fun row6PastThresholdNowGivesValueTrendAndWhereItIsHeading() {
+        val low = Risk(type = "hypo", at = nowMs + 20 * min, severity = "high", mgdl = 62.0)
+        val high = Risk(type = "hyper", at = nowMs + 20 * min, severity = "medium", mgdl = 230.0)
         val lowLine = status(snap(mgdl = 70.0, risk = low))
-        assertLine(lowLine, StatusKind.LOW_NOW, "Low now", "now", "Low")
+        // Reading 4 min old: the 30-min horizon is 26 min ahead, said as 25.
+        assertLine(lowLine, StatusKind.LOW_NOW, "70 mg/dL, steady. Likely about 150 in 25 min.", "now", "Low")
         assertTrue(lowLine.urgent)
-        val highLine = status(snap(mgdl = 180.0, risk = high))
-        assertLine(highLine, StatusKind.HIGH_NOW, "High now", "now", "High")
+        val highLine = status(snap(mgdl = 198.0, risk = high, age = 0, forecast = forecast(t0 = nowMs)))
+        assertLine(highLine, StatusKind.HIGH_NOW, "198 mg/dL, steady. Likely about 150 in 30 min.", "now", "High")
         assertFalse(highLine.urgent)
     }
 
     @Test
-    fun row8PredictedInMinutes() {
-        val line = status(snap(mgdl = 71.0, risk = Risk("hypo", nowMs + 24 * min + 1, "medium")))
-        assertLine(line, StatusKind.LOW_SOON, "Low predicted in 25 min", "25m", "Low")
+    fun row7HeadingPastTheThresholdWithWhenAndApartHowFar() {
+        val line = status(snap(mgdl = 71.0, risk = Risk("hypo", nowMs + 24 * min + 1, "medium", 68.4)))
+        assertLine(line, StatusKind.LOW_SOON, "Heading below 70 in about 25 min (could reach 68).", "25m", "Low")
         assertFalse(line.urgent)
-        assertLine(
-            status(snap(mgdl = 179.0, risk = Risk("hyper", nowMs + 15 * min, "high"))),
-            StatusKind.HIGH_SOON, "High predicted in 15 min", "15m", "High",
-        )
-        assertTrue(status(snap(mgdl = 179.0, risk = Risk("hyper", nowMs + 15 * min, "high"))).urgent)
+        val high = snap(mgdl = 179.0, risk = Risk("hyper", nowMs + 15 * min, "high", 205.0))
+        assertLine(status(high), StatusKind.HIGH_SOON, "Heading above 180 in about 15 min (could reach 205).", "15m", "High")
+        assertTrue(status(high).urgent)
+        val mmol = high.copy(unit = GlucoseUnit.MMOL_L)
+        assertEquals("Heading above 10.0 in about 15 min (could reach 11.4).", status(mmol).sentence)
+        val lowMmol = snap(mgdl = 71.0, risk = Risk("hypo", nowMs + 40 * min, "low", 61.0)).copy(unit = GlucoseUnit.MMOL_L)
+        assertEquals("Heading below 3.9 in about 40 min (could reach 3.4).", status(lowMmol).sentence)
+        // Without the value (phone app 0.2) the parenthesis is left out.
+        assertEquals("Heading above 180 in about 15 min.", status(snap(mgdl = 179.0, risk = Risk("hyper", nowMs + 15 * min, "low"))).sentence)
     }
 
     @Test
-    fun row9PredictedForLocalTime() {
-        val at = nowMs // 08:20 UTC
+    fun row8HeadingWhenTheCrossingTimeHasPassed() {
         assertLine(
-            status(snap(risk = Risk("hypo", at, "low"))),
-            StatusKind.LOW_SOON, "Low predicted for 08:20", "now", "Low",
+            status(snap(risk = Risk("hypo", nowMs, "low", 66.0))),
+            StatusKind.LOW_SOON, "Heading below 70 soon (could reach 66).", "now", "Low",
         )
-        val line = statusOf(snap(risk = Risk("hyper", at - 2 * min, "low")), nowMs, ZoneId.of("Europe/Berlin"))
-        assertLine(line, StatusKind.HIGH_SOON, "High predicted for 10:18", "now", "High")
+        assertEquals("Heading above 180 soon.", riskSentence(Risk("hyper", nowMs, "low"), GlucoseUnit.MG_DL, 0))
     }
 
     @Test
-    fun row10HighNowBackInRange() {
+    fun row9HighOrLowNowWithoutRiskStillSaysWhereItIsHeading() {
         assertLine(
-            status(snap(mgdl = 180.0)),
-            StatusKind.HIGH_NOW, "High now, back in range within 15 min", "now", "High",
+            status(snap(mgdl = 180.0).let { it.copy(now = it.now!!.copy(rate = 2.5)) }),
+            StatusKind.HIGH_NOW, "180 mg/dL, rising quickly. Likely about 150 in 25 min.", "now", "High",
         )
+        assertLine(
+            status(snap(mgdl = 70.0).let { it.copy(now = it.now!!.copy(rate = null)) }),
+            StatusKind.LOW_NOW, "70 mg/dL. Likely about 150 in 25 min.", "now", "Low",
+        )
+        // Every horizon has passed: only the reading is described.
+        val late = snap(mgdl = 190.0, forecast = forecast(t0 = nowMs - 60 * min + 1).copy(horizons = listOf(15, 30, 45, 59)))
+        assertEquals("190 mg/dL, steady.", status(late).sentence)
     }
 
     @Test
-    fun row11LowNowBackInRange() {
-        assertLine(
-            status(snap(mgdl = 70.0)),
-            StatusKind.LOW_NOW, "Low now, back in range within 15 min", "now", "Low",
-        )
-    }
-
-    @Test
-    fun row12InRange() {
+    fun row10InRange() {
         val line = status(snap(mgdl = 70.1))
-        assertLine(line, StatusKind.IN_RANGE, "In range for the next hour", "OK", "Next 1h")
+        assertLine(line, StatusKind.IN_RANGE, "In range for the next hour.", "OK", "Next 1h")
         assertFalse(line.urgent)
         assertEquals(StatusKind.IN_RANGE, status(snap(mgdl = 179.9)).kind)
     }
@@ -160,7 +145,7 @@ class StatusTest {
     fun shortTextsFitSevenCharacters() {
         val lines = mutableListOf<StatusLine>()
         lines += status(null)
-        for (state in listOf("ok", "unreachable", "signed_out", "needs_setup", "warming_up")) {
+        for (state in listOf("ok", "needs_setup", "warming_up")) {
             for (age in listOf(min, 20 * min)) {
                 for (f in listOf(null, forecast(), forecast(t0 = nowMs - 2 * 60 * min))) {
                     for (mgdl in listOf(40.0, 70.0, 120.0, 180.0, 400.0)) {

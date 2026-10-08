@@ -165,4 +165,16 @@ describe('ApiClient', () => {
     expect(blob.size).toBe('timestamp,glucose_mg_dl,flag\n'.length);
     expect(new Headers(fetchImpl.mock.calls[0]![1]?.headers).get('Accept')).toBe('text/csv');
   });
+
+  it('reads accuracy and the public downloads list from their endpoints', async () => {
+    const fetchImpl = mockFetch(() => jsonResponse({ phone_apk: null, watch_apk: null, releases_url: 'https://example.org/releases' }));
+    const api = new ApiClient({ fetchImpl });
+
+    await api.myAccuracy();
+    await api.modelAccuracy();
+    const downloads = await api.downloads();
+
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual(['/me/accuracy', '/model/accuracy', '/downloads']);
+    expect(downloads.releases_url).toBe('https://example.org/releases');
+  });
 });

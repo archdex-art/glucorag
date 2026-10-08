@@ -11,7 +11,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import org.glucorag.app.R
-import org.glucorag.app.net.AlertDto
+import org.glucorag.app.forecast.LocalAlert
+import org.glucorag.shared.GlucoseUnit
+import org.glucorag.shared.formatGlucose
 
 /** Notification channels. Importance is fixed when a channel is first created. */
 object Channels {
@@ -22,7 +24,7 @@ object Channels {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(ALERTS, "Forecast alerts", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "A low or high predicted within the hour"
+                description = "A low or high likely within the hour"
             },
         )
         manager.createNotificationChannel(
@@ -44,13 +46,13 @@ object Channels {
 }
 
 /**
- * Posts one notification per alert id on the high-importance channel. Never ongoing or local-only,
- * so Wear OS bridges it to the watch.
+ * Posts alerts on the high-importance channel, one notification per type (a newer one replaces
+ * the last). Never ongoing or local-only, so Wear OS bridges it to the watch.
  */
 class AlertNotifier(private val context: Context) {
-    fun notify(alert: AlertDto) {
+    fun notify(alert: LocalAlert, unit: GlucoseUnit, nowMs: Long) {
         val low = alert.type == "hypo"
-        post(alert.id.toInt(), title(low, alert.horizonMin))
+        post(if (low) LOW_ID else HIGH_ID, title(low, alert.at, alert.couldReachMgdl, unit, nowMs))
     }
 
     /** A local test notification on the same channel, so the user can check the watch shows it. */
@@ -78,10 +80,16 @@ class AlertNotifier(private val context: Context) {
     companion object {
         const val BODY = "Research forecast. Your CGM app's alarms still apply."
         private const val TEST_ID = -1
+        private const val LOW_ID = 1
+        private const val HIGH_ID = 2
+        private const val MINUTE_MS = 60_000L
 
-        fun title(low: Boolean, horizonMin: Int?): String {
+        /** "Low likely in about 25 min (could reach 66 mg/dL)." [at] is when it first crosses 70 / 180. */
+        fun title(low: Boolean, at: Long, couldReachMgdl: Double, unit: GlucoseUnit, nowMs: Long): String {
             val word = if (low) "Low" else "High"
-            return if (horizonMin == null) "$word predicted" else "$word predicted in $horizonMin min"
+            val minutes = (at - nowMs + MINUTE_MS - 1) / MINUTE_MS
+            val time = if (minutes > 0) "in about $minutes min" else "soon"
+            return "$word likely $time (could reach ${formatGlucose(couldReachMgdl, unit)} ${unit.label})."
         }
     }
 }

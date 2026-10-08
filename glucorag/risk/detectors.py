@@ -12,6 +12,14 @@ International Consensus on Time in Range: < 54 and > 250 mg/dL, applied inclusiv
   * ``high``   – a level-2 value within ``urgent_horizon_min``;
   * ``medium`` – first crossing within ``urgent_horizon_min``, or a level-2 value later;
   * ``low``    – only level-1 crossings beyond ``urgent_horizon_min``.
+
+:func:`assess` gives the risk flags (status: "at risk"). :func:`alerting` narrows them to the
+flags that raise an alert, to keep notifications for news the person can act on:
+  * no hyper alert while the latest reading is already ``>= hyper_mg_dl``, no hypo alert while
+    it is already ``<= hypo_mg_dl`` (the status already says "High now" / "Low now");
+  * a hyper alert also needs the selected quantile ``>= hyper_mg_dl + hyper_alert_margin_mg_dl``
+    (190 by default) at some horizon; hypo alerts keep no margin (safety).
+The phone's on-device engine implements the same rule.
 """
 
 from dataclasses import dataclass
@@ -42,6 +50,7 @@ class RiskConfig:
     hypo_level2_mg_dl: float = 54.0
     hyper_level2_mg_dl: float = 250.0
     urgent_horizon_min: int = 30
+    hyper_alert_margin_mg_dl: float = 10.0
 
     def quantiles_for(self, policy: AlertPolicy | None) -> tuple[float, float]:
         """Effective ``(hypo_q, hyper_q)``: patient policy first, then service defaults."""
@@ -129,3 +138,18 @@ def assess(
             )
         )
     return flags
+
+
+def alerting(flags: list[RiskFlag], latest_mg_dl: float, config: RiskConfig) -> list[RiskFlag]:
+    """The flags that raise an alert, given the latest reading (see module docstring)."""
+    out: list[RiskFlag] = []
+    for f in flags:
+        if f.type == "hypo":
+            if latest_mg_dl > config.hypo_mg_dl:
+                out.append(f)
+        elif (
+            latest_mg_dl < config.hyper_mg_dl
+            and f.extreme_mg_dl >= config.hyper_mg_dl + config.hyper_alert_margin_mg_dl
+        ):
+            out.append(f)
+    return out

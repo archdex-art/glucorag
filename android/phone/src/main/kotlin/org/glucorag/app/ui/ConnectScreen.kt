@@ -47,16 +47,26 @@ private fun scanQrCode(context: Context, onScanned: (String) -> Unit, onError: (
         .addOnFailureListener { onError("Couldn't open the scanner. Enter the pairing code instead.") }
 }
 
+/** "192.168.1.20:8000" for a server base, as a person recognises it. */
+internal fun hostOf(server: String): String = try {
+    java.net.URI(server).authority ?: server
+} catch (e: java.net.URISyntaxException) {
+    server
+}
+
 /**
- * Pairing with the website (QR code or typed code), or sign-in with email and password.
- * [autoPair] is a pairing link that opened the app: it is redeemed at once, and [onAutoPairTaken]
- * tells the caller it has been taken. [onSignedIn] gets whether the account has a profile.
+ * The first screen: [onUseOnPhone] (null once the phone is set up) uses GlucoRAG without a
+ * server; otherwise pairing with the website (QR code or typed code), or sign-in with email and
+ * password. [autoPair] is a pairing link that opened the app: it is redeemed at once with only
+ * "Pairing with <host>…" on screen, and [onAutoPairTaken] tells the caller it has been taken.
+ * [onSignedIn] gets whether the account (or the phone) has About you.
  */
 @Composable
 fun ConnectScreen(
     initialServer: String?,
     autoPair: PairLink.Ok?,
     onAutoPairTaken: () -> Unit,
+    onUseOnPhone: (() -> Unit)?,
     onSignedIn: (hasProfile: Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -65,8 +75,11 @@ fun ConnectScreen(
     var code by rememberSaveable { mutableStateOf("") }
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var connect by rememberSaveable { mutableStateOf(onUseOnPhone == null) }
     var typeCode by rememberSaveable { mutableStateOf(false) }
     var useEmail by rememberSaveable { mutableStateOf(false) }
+    // While a link from the website's QR code is being redeemed: only "Pairing with <host>…".
+    var fromLink by rememberSaveable { mutableStateOf(false) }
     var serverMessage by remember { mutableStateOf<Account.Result?>(null) }
     var pairMessage by remember { mutableStateOf<String?>(null) }
     var codeError by remember { mutableStateOf<String?>(null) }
@@ -74,7 +87,7 @@ fun ConnectScreen(
     var busy by remember { mutableStateOf<String?>(null) }
 
     fun redeem(link: PairLink.Ok) {
-        busy = "Pairing with ${link.server}…"
+        busy = "Pairing with ${hostOf(link.server)}…"
         pairMessage = null
         scope.launch {
             when (val r = Account.pair(context, link)) {
@@ -96,20 +109,20 @@ fun ConnectScreen(
         }
     }
 
-    fun redeemTyped() {
+    fun typedLink(): PairLink.Ok? {
         val base = when (val check = checkServerUrl(server.trim())) {
             is ServerUrlCheck.Ok -> check.base
             is ServerUrlCheck.Rejected -> {
                 serverMessage = Account.Result.Error(check.reason)
-                return
+                return null
             }
         }
         val normalized = normalizePairCode(code)
         if (normalized == null) {
             codeError = PAIR_CODE_HINT
-            return
+            return null
         }
-        redeem(PairLink.Ok(base, normalized))
+        return PairLink.Ok(base, normalized)
     }
 
     LaunchedEffect(autoPair) {
@@ -117,8 +130,8 @@ fun ConnectScreen(
         onAutoPairTaken()
         server = link.server
         code = displayPairCode(link.code)
-        // On failure the typed-code fields show what the link held, ready to correct or retry.
-        typeCode = true
+        fromLink = true
+        connect = true
         redeem(link)
     }
 
@@ -129,24 +142,51 @@ fun ConnectScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("GlucoRAG", style = MaterialTheme.typography.headlineSmall)
-        Hint("Connect this phone to your GlucoRAG server. Readings from your CGM app upload here, and your watch shows the forecast.")
-        Sheet {
-            SectionTitle("Pair with the website")
-            Hint("On the GlucoRAG website, open Settings, then Connected devices, and choose Connect a phone. Scan the QR code it shows: the phone finds the server and signs in.")
-            Button(
-                onClick = { pairMessage = null; scanQrCode(context, ::redeemScanned) { pairMessage = it } },
-                enabled = busy == null,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Scan QR code") }
-            OutlinedButton(
-                onClick = { typeCode = !typeCode },
-                enabled = busy == null,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Enter pairing code") }
-            busy?.let { Hint(it) }
-            pairMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (fromLink) {
+            Sheet {
+                SectionTitle("Pairing this phone")
+                busy?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                pairMessage?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.error)
+                    Button(onClick = { typedLink()?.let(::redeem) }, enabled = busy == null) { Text("Try again") }
+                    // On failure the typed-code fields show what the link held, ready to correct.
+                    TextButton(onClick = { fromLink = false; typeCode = true }) { Text("Other ways to connect") }
+                }
+            }
+            ResearchNotice()
+            return@Column
         }
-        if (typeCode || useEmail) {
+        Hint("GlucoRAG forecasts your glucose for the next hour from your CGM readings, and warns you before a likely low or high.")
+        if (onUseOnPhone != null) {
+            Sheet {
+                SectionTitle("How do you want to use GlucoRAG?")
+                Button(onClick = onUseOnPhone, enabled = busy == null, modifier = Modifier.fillMaxWidth()) { Text("Use on this phone only") }
+                Hint("No account needed. Forecasts and alerts run on this phone, and your readings stay on it.")
+                OutlinedButton(onClick = { connect = true }, enabled = busy == null, modifier = Modifier.fillMaxWidth()) {
+                    Text("Connect to a GlucoRAG server")
+                }
+                Hint("If you or your clinic run a GlucoRAG server: your readings are kept there too, and you can see them on its website. You can also connect later in Settings.")
+            }
+        }
+        if (connect) {
+            Sheet {
+                SectionTitle("Pair with the website")
+                Hint("On the GlucoRAG website, open Settings, then Connected devices, and choose Connect a phone. Scan the QR code it shows: the phone finds the server and signs in.")
+                Button(
+                    onClick = { pairMessage = null; scanQrCode(context, ::redeemScanned) { pairMessage = it } },
+                    enabled = busy == null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Scan QR code") }
+                OutlinedButton(
+                    onClick = { typeCode = !typeCode },
+                    enabled = busy == null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Enter pairing code") }
+                busy?.let { Hint(it) }
+                pairMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        }
+        if (connect && (typeCode || useEmail)) {
             Sheet {
                 SectionTitle("Server")
                 OutlinedTextField(
@@ -169,7 +209,7 @@ fun ConnectScreen(
                 }
             }
         }
-        if (typeCode) {
+        if (connect && typeCode) {
             Sheet {
                 SectionTitle("Pairing code")
                 OutlinedTextField(
@@ -188,14 +228,14 @@ fun ConnectScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(
-                    onClick = ::redeemTyped,
+                    onClick = { typedLink()?.let(::redeem) },
                     enabled = busy == null && server.isNotBlank() && code.isNotBlank(),
                 ) { Text(if (busy != null) "Pairing" else "Pair") }
             }
         }
-        if (!useEmail) {
+        if (connect && !useEmail) {
             TextButton(onClick = { useEmail = true }) { Text("Sign in with email instead") }
-        } else {
+        } else if (connect) {
             Sheet {
                 SectionTitle("Sign in with email")
                 OutlinedTextField(

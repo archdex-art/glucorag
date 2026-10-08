@@ -5,16 +5,27 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AccountTest {
-    /** Another account's markers would drop the new account's first readings and alert history. */
+    private val base = "http://10.0.2.2:8851"
+
+    /** Another account's thinning marker would drop the new account's first readings. */
     @Test
-    fun signingInStartsAFreshSession() {
-        val next = signedIn(base = "http://10.0.2.2:8851", token = "tok", email = "noor@example.com", unit = "mg/dL")
-        assertEquals(
-            Session(server = "http://10.0.2.2:8851", token = "tok", email = "noor@example.com", unit = "mg/dL"),
-            next,
-        )
-        assertEquals(null, next.lastQueuedT)
-        assertEquals(null, next.lastAlertId)
-        assertEquals(emptyList<String>(), next.notifiedAlerts)
+    fun signingInToAnotherAccountStartsAFreshSession() {
+        val previous = Session(server = base, token = "old", email = "sam@example.com", lastStoredT = 7, simulated = true)
+        val next = signedIn(previous, base, "tok", "noor@example.com", "mg/dL", otherAccount = true)
+        assertEquals(Session(server = base, token = "tok", email = "noor@example.com", unit = "mg/dL"), next)
+    }
+
+    /** From this phone only, readings keep being stored one per 5 minutes without a gap. */
+    @Test
+    fun connectingFromThisPhoneOnlyKeepsTheThinningMarker() {
+        val previous = Session(localOnly = true, lastStoredT = 7, unit = "mmol/L", simulated = true)
+        val next = signedIn(previous, base, "tok", "noor@example.com", "mg/dL", otherAccount = false)
+        assertEquals(Session(server = base, token = "tok", email = "noor@example.com", unit = "mg/dL", lastStoredT = 7), next)
+    }
+
+    @Test
+    fun signingOutButKeepingDataGoesOnWithoutAServer() {
+        val previous = Session(server = base, token = "tok", email = "noor@example.com", lastStoredT = 7, unit = "mmol/L", simulated = true)
+        assertEquals(Session(localOnly = true, lastStoredT = 7, unit = "mmol/L", simulated = true), keptOnPhone(previous))
     }
 }

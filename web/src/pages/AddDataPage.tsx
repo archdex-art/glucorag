@@ -6,6 +6,7 @@ import { ApiError, errorMessage } from '../api/errors';
 import { ME_KEY, useMe } from '../api/hooks';
 import type { CycleResult, ImportDates, ImportResult, ImportUnit, MeInfo, RejectedReading, Unit } from '../api/types';
 import { useAccount, useApi } from '../auth/context';
+import { PhoneChoice, SampleDataButton } from '../components/AddDataChoices';
 import { Field, FieldError } from '../components/Field';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState, Skeleton } from '../components/States';
@@ -511,6 +512,21 @@ export function AddDataPage() {
           {me.isPending ? <Skeleton label="Loading" rows={4} /> : null}
           {me.data ? tab === 'import' ? <ImportForm /> : <ReadingForm me={me.data} /> : null}
         </div>
+        <section className="sheet-section" aria-labelledby={`${id}-more`}>
+          <h2 id={`${id}-more`}>More ways to add data</h2>
+          <div className="choices">
+            <PhoneChoice headingLevel={3} />
+            {me.data && me.data.readings.count === 0 ? (
+              <div className="choice-more">
+                <h3 className="choice-more-title">Just looking?</h3>
+                <p className="muted">Load 48 hours of readings from one person, ending now. Delete them any time in Settings.</p>
+                <div className="choice-actions">
+                  <SampleDataButton />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
       </div>
     </>
   );

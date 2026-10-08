@@ -56,6 +56,13 @@
 - **CVGA D+E:** 20.9% → 24.6%. The paper reports a 9-point improvement; here it gets worse.
 - Details: `reports/sim/report.md`.
 
+## Monitoring in use
+- **Live accuracy:** each stored forecast is matched to the reading nearest its 30- and 60-min target, within half the sampling interval (7.5 min for v1); forecasts without such a reading are left out. Error uses the median forecast; coverage is the share of readings inside the q0.25–q0.75 (50 %) and q0.10–q0.90 (80 %) bands.
+- `GET /model/accuracy` (staff) reports rolling 7- and 30-day RMSE, MAE, median absolute error and coverage for the cohort, each model version and each patient, plus a 30-day daily series with alert counts. The Model page shows it.
+- **Drift warning:** when the served version's 7-day RMSE (at least 20 matched forecasts) exceeds this card's test RMSE (12.04 / 21.21 mg/dL) by more than 25 %.
+- People see one line on Today: how close their 30-min forecast usually came over the last 7 days (median absolute error), from 20 matched forecasts.
+- Well-calibrated quantiles should cover about 50 % and 80 %; markedly lower coverage means the bands, and so the alerts, are too narrow for this population.
+
 ## Intended use and limits
 - **Intended use:** research on population-level forecasting from Libre-like 15-min CGM, in cohorts similar to ShanghaiDM (adult Chinese, mostly T2D).
 - **Out of scope:**
